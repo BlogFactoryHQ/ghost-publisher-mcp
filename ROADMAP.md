@@ -6,14 +6,15 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 
 | Horizon | Milestone | Status | Plan |
 | --- | --- | --- | --- |
-| Current | v0.4.1 release correction | Corrected npm documentation and published-package MCP smoke coverage | [0.4 Pages](docs/plans/0.4-pages.md) |
+| Current | v0.5.0 portable MCP prompts | Implemented in source; strict client gate blocked on 2026-07-21, so untagged and unpublished | [Future interoperability](docs/plans/future-interoperability.md) |
+| Shipped | v0.4.1 release correction | Corrected npm documentation and published-package MCP smoke coverage | [0.4 Pages](docs/plans/0.4-pages.md) |
 | Shipped | v0.2.0 release hardening and SEO workflow | Included in the consolidated v0.4.0 release | [0.2 release](docs/plans/0.2-release.md), [SEO workflow](docs/plans/0.2-seo-workflow.md) |
 | Shipped | v0.2.1 cross-client onboarding | Included in the consolidated v0.4.0 release | [0.2.1 onboarding](docs/plans/0.2.1-onboarding.md) |
 | Shipped | v0.3.0 editorial core | Included in the consolidated v0.4.0 release | [0.3 editorial](docs/plans/0.3-editorial.md) |
 | Shipped | v0.4.0 safe Pages vertical | Published and verified on 2026-07-21 | [0.4 Pages](docs/plans/0.4-pages.md) |
-| Demand-gated | Portable prompts and broader interoperability | No committed release | [Future interoperability](docs/plans/future-interoperability.md) |
+| Demand-gated | Broader interoperability | No committed release beyond portable prompts | [Future interoperability](docs/plans/future-interoperability.md) |
 
-The npm package and official MCP Registry serve `0.4.1`. The tag workflow passes Ghost 5/6 integration, package checks, audit, npm provenance publication, Registry publication, and public version verification. The published package also passes initialization, normal/read-only tool discovery, connection checks, and disposable draft creation through a real MCP client.
+The npm package and official MCP Registry serve `0.4.1`; source prepares an untagged `0.5.0` candidate. Codex CLI `0.145.0-alpha.18` did not expose the candidate prompts, and Cursor plus Claude Desktop were unavailable on the release-test host. The strict client gate therefore blocks v0.5.0 publication and the start of v0.6.0.
 
 ## Gap register
 
@@ -32,14 +33,15 @@ The npm package and official MCP Registry serve `0.4.1`. The tag workflow passes
 | P2 | Patch semantics were incomplete | Add nullable draft fields and published feature-image replacement | Released in v0.4.0 |
 | P2 | Discovery was narrow | Add bounded author/date/order filters, not arbitrary NQL | Released in v0.4.0 |
 | P2 | Pages required Ghost Admin handoff | Add a separate guarded Pages workflow for Ghost-rendered and headless sites | Released in v0.4.0; monitor usage |
-| P3 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Demand-gated after observed v0.4 usage |
+| P3 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Implemented for v0.5.0; release smoke pending |
 
 ## Delivery order
 
 1. v0.4.0 consolidated release and v0.4.1 documentation correction: complete.
-2. Monitor setup, scheduling, and Pages usage across supported clients.
-3. Correct release defects with the next patch version; never overwrite published versions.
-4. Reassess broader interoperability only from observed usage.
+2. Smoke both portable prompts in current Codex, Cursor, and Claude Desktop releases, then publish v0.5.0 only if all three clients discover and invoke them.
+3. Monitor setup, scheduling, Pages, and prompt usage across supported clients.
+4. Correct release defects with the next patch version; never overwrite published versions.
+5. Reassess broader interoperability only from observed usage.
 
 ## Non-goals
 

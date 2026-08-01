@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0 (Unreleased)
+
+- Add zero-argument `ghost_safe_publish` and `ghost_seo_optimize` MCP prompts for portable, approval-gated workflows.
+- Hide write-oriented prompts in read-only mode while preserving the existing 23 normal and 9 read-only tools.
+
 ## 0.4.1 (2026-07-21)
 
 - Correct the npm README so installation guidance and release status match the published package.

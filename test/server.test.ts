@@ -239,6 +239,52 @@ describe('MCP contract', () => {
       ].sort(),
     );
 
+    expect(client.getServerCapabilities()?.prompts).toBeUndefined();
+
+    await client.close();
+    await server.close();
+  });
+
+  it('advertises two zero-argument prompts with portable safety workflows in normal mode', async () => {
+    const publisher = new GhostPublisher(config, {
+      ghost: { site: { read: async () => ({}) } },
+    });
+    const { client, server } = await connect(publisher);
+
+    expect(client.getServerCapabilities()?.prompts).toBeDefined();
+    const prompts = await client.listPrompts();
+    expect(prompts.prompts).toEqual([
+      expect.objectContaining({ name: 'ghost_safe_publish', arguments: undefined }),
+      expect.objectContaining({ name: 'ghost_seo_optimize', arguments: undefined }),
+    ]);
+
+    const safePublish = await client.getPrompt({ name: 'ghost_safe_publish' });
+    expect(safePublish.messages).toHaveLength(1);
+    expect(safePublish.messages[0]?.role).toBe('user');
+    expect(JSON.stringify(safePublish.messages[0]?.content)).toContain('never both');
+    expect(JSON.stringify(safePublish.messages[0]?.content)).toContain('Stop for explicit approval');
+    expect(JSON.stringify(safePublish.messages[0]?.content)).toContain('Never call trigger_deploy');
+    expect(JSON.stringify(safePublish.messages[0]?.content)).toContain('live_check_configured: true');
+    expect(JSON.stringify(safePublish.messages[0]?.content)).toContain('without repeating any write');
+    expect(JSON.stringify(safePublish.messages[0]?.content)).toContain('at most three attempts over two minutes');
+
+    const seoOptimize = await client.getPrompt({ name: 'ghost_seo_optimize' });
+    expect(seoOptimize.messages).toHaveLength(1);
+    expect(seoOptimize.messages[0]?.role).toBe('user');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('untrusted evidence');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Stop for explicit approval');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Never patch Markdown, HTML, Lexical');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('read-only heuristic proposal');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('50-page audit without Lighthouse');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('at most 10 queries');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('at most three ambiguous SERPs');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Never call save_keywords');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('canonical host or path change');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('authors, featured, status');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('HTML and Lexical body are unchanged');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('live_check_configured: true');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('trigger_deploy exactly once');
+
     await client.close();
     await server.close();
   });

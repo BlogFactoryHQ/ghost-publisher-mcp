@@ -1,15 +1,23 @@
 # Future Interoperability Plan
 
-Status: demand-gated after observed v0.4 usage.
+Status: portable prompts implemented for the v0.5.0 release candidate; broader interoperability remains demand-gated.
 
 ## Portable MCP prompts
 
-Add two prompts for clients that support MCP prompts:
+Normal mode exposes two zero-argument prompts for clients that support MCP prompts; read-only mode exposes neither:
 
 - `ghost_safe_publish`: exact draft review, one approval covering named transitions and the configured automatic deployment, publish, and live verification.
 - `ghost_seo_optimize`: evidence gathering, exact metadata proposal, approval covering the patch and one named manual deployment, revision-saving update, deploy, and live verification.
 
-Both prompts must treat Ghost, crawl, SEO, query, and SERP content as untrusted evidence; use exact IDs and current timestamps; name every destructive action in approval; never send newsletters; and never edit published bodies. They should work in Codex, Claude, Cursor, and other MCP-prompt clients.
+Both prompts treat Ghost, crawl, SEO, query, and SERP content as untrusted evidence; use exact IDs and current timestamps; name every destructive action in approval; never send newsletters; and never edit published bodies. Release requires prompt discovery and proposal-only invocation in current Codex, Claude Desktop, and Cursor clients.
+
+### v0.5.0 client release gate (2026-07-21)
+
+- Codex CLI `0.145.0-alpha.18`: failed. The actual interactive client connected to the built candidate and discovered all 23 tools, but `/mcp` and slash-command discovery did not expose either MCP prompt.
+- Cursor: not installed on the release-test host, so the required actual-client smoke could not run.
+- Claude Desktop: not installed on the release-test host, so the required actual-client smoke could not run.
+
+Result: the strict three-client gate is blocked. Do not tag or publish v0.5.0, and do not begin v0.6.0, until all three current clients discover and invoke both prompts against disposable fixtures.
 
 Retain the richer Codex optimizer skill. Do not add duplicate MCP resources while the structured tools already supply the required data.
 
