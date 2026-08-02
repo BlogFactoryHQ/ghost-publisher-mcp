@@ -68,22 +68,51 @@ export type DraftInput = {
   twitter_image?: string | null;
 };
 
-export type PublishedPostPatch = {
-  title?: string;
-  excerpt?: string | null;
-  feature_image_url?: string | null;
-  feature_image_alt?: string | null;
-  feature_image_caption?: string | null;
-  meta_title?: string | null;
-  meta_description?: string | null;
-  canonical_url?: string | null;
-  og_title?: string | null;
-  og_description?: string | null;
-  og_image?: string | null;
-  twitter_title?: string | null;
-  twitter_description?: string | null;
-  twitter_image?: string | null;
+export type PageInput = Omit<DraftInput, 'tags' | 'authors' | 'featured'>;
+
+export type ChangeScope = 'body' | 'title' | 'slug' | 'taxonomy' | 'feature_image' | 'metadata';
+
+export type ChangeTarget = {
+  type: 'post' | 'page';
+  id: string;
+  updated_at: string;
 };
 
-export type PageInput = Omit<DraftInput, 'tags' | 'authors' | 'featured'>;
-export type PublishedPagePatch = PublishedPostPatch;
+export type ChangeFieldPatch = Omit<Partial<DraftInput>, 'markdown'>;
+
+export type ChangeOperation =
+  | { type: 'update_fields'; patch: ChangeFieldPatch }
+  | { type: 'replace_body'; markdown: string };
+
+export type ChangeRequest = {
+  target: ChangeTarget;
+  operation: ChangeOperation;
+};
+
+export type ContentSnapshot = Record<string, unknown> & {
+  id: string;
+  title: string;
+  slug: string;
+  status: string;
+  updated_at: string;
+  html: string;
+  lexical: string;
+};
+
+export type ChangePreviewItem = {
+  target: ChangeTarget;
+  before_snapshot: ContentSnapshot;
+  snapshot_hash: string;
+  changed_fields: string[];
+  required_scopes: ChangeScope[];
+  characters: { before: number; after: number };
+  lexical_nodes: Record<string, number>;
+  protected_nodes: string[];
+  warnings: string[];
+  can_apply: boolean;
+};
+
+export type ChangePreview = {
+  changes: ChangePreviewItem[];
+  preview_hash: string;
+};

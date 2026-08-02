@@ -6,17 +6,29 @@ import GhostAdminAPI from '@tryghost/admin-api';
 import { fileTypeFromBuffer } from 'file-type';
 import FormData from 'form-data';
 import MarkdownIt from 'markdown-it';
-import { redactSecrets, type Config } from './config.js';
+import { canEditDraft, canPublish, canSchedule, redactSecrets, type Config } from './config.js';
+import {
+  canonicalJson,
+  lexicalInventory,
+  previewSignature,
+  sameSignature,
+  scopeForField,
+  snapshotHash,
+  textCharacters,
+} from './change-set.js';
 import type {
   BatchResult,
+  ChangePreview,
+  ChangePreviewItem,
+  ChangeRequest,
+  ChangeScope,
+  ContentSnapshot,
   DeployResult,
   DraftInput,
   ImageAsset,
   PageInput,
   PageRef,
   PostRef,
-  PublishedPagePatch,
-  PublishedPostPatch,
 } from './types.js';
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -198,6 +210,49 @@ function ghostFields(input: GhostFieldInput): Record<string, unknown> {
       : {}),
     ...(input.twitter_image !== undefined ? { twitter_image: input.twitter_image } : {}),
   };
+}
+
+function snapshotField(snapshot: ContentSnapshot, field: string): unknown {
+  if (field === 'excerpt') return snapshot.custom_excerpt;
+  if (field === 'feature_image_url') return snapshot.feature_image;
+  if (field === 'authors') {
+    return Array.isArray(snapshot.authors)
+      ? snapshot.authors.map((author) => (author as { id?: unknown }).id)
+      : [];
+  }
+  return snapshot[field];
+}
+
+function snapshotKey(field: string): string {
+  if (field === 'excerpt') return 'custom_excerpt';
+  if (field === 'feature_image_url') return 'feature_image';
+  return field;
+}
+
+function equalValue(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+const PUBLISHED_FIELDS = new Set([
+  'title',
+  'excerpt',
+  'feature_image_url',
+  'feature_image_alt',
+  'feature_image_caption',
+  'meta_title',
+  'meta_description',
+  'canonical_url',
+  'og_title',
+  'og_description',
+  'og_image',
+  'twitter_title',
+  'twitter_description',
+  'twitter_image',
+]);
+
+function uniqueScopes(scopes: ChangeScope[]): ChangeScope[] {
+  return [...new Set(scopes)].sort();
 }
 
 function ghostDraft(input: DraftInput & { slug: string }): Record<string, unknown> {
@@ -434,6 +489,205 @@ export class GhostPublisher {
     return details(page, pageRef(page));
   }
 
+  private async changeSnapshot(target: ChangeRequest['target']): Promise<ContentSnapshot> {
+    const snapshot = (target.type === 'post' ? await this.getPost(target.id) : await this.getPage(target.id)) as ContentSnapshot;
+    if (snapshot.updated_at !== target.updated_at) {
+      throw new Error(`${target.type === 'post' ? 'Post' : 'Page'} changed since it was read`);
+    }
+    if (snapshot.status === 'scheduled') throw new Error('Scheduled content must be unscheduled before editing');
+    return snapshot;
+  }
+
+  private previewItem(change: ChangeRequest, snapshot: ContentSnapshot): ChangePreviewItem {
+    const warnings: string[] = [];
+    let nodes: Record<string, number> = {};
+    let protectedNodes: string[] = [];
+    try {
+      ({ nodes, protectedNodes } = lexicalInventory(snapshot.lexical));
+    } catch {
+      protectedNodes = ['invalid-lexical'];
+      warnings.push('Lexical content could not be parsed');
+    }
+
+    const changedFields: string[] = [];
+    const scopes: ChangeScope[] = [];
+    let afterCharacters = textCharacters(snapshot.html);
+    let canApplyChange = snapshot.status === 'draft' || snapshot.status === 'published';
+
+    if (change.operation.type === 'replace_body') {
+      changedFields.push('body');
+      scopes.push('body');
+      afterCharacters = textCharacters(markdown.render(change.operation.markdown));
+      if (snapshot.status !== 'draft') {
+        canApplyChange = false;
+        warnings.push('Body replacement accepts drafts only');
+      }
+      if (protectedNodes.length) {
+        canApplyChange = false;
+        warnings.push(`Body replacement is blocked by protected Lexical nodes: ${protectedNodes.join(', ')}`);
+      }
+    } else {
+      const patch = change.operation.patch;
+      const fields = Object.keys(patch);
+      if (!fields.length) {
+        canApplyChange = false;
+        warnings.push('No fields were provided');
+      }
+      if (change.target.type === 'page' && fields.some((field) => ['tags', 'authors', 'featured'].includes(field))) {
+        canApplyChange = false;
+        warnings.push('Pages do not accept tags, authors, or featured');
+      }
+      if (snapshot.status === 'published' && fields.some((field) => !PUBLISHED_FIELDS.has(field))) {
+        canApplyChange = false;
+        warnings.push('Published content accepts approved metadata fields only');
+      }
+      for (const field of fields) {
+        const value = patch[field as keyof typeof patch];
+        if (!equalValue(snapshotField(snapshot, field), value)) {
+          changedFields.push(field);
+          scopes.push(scopeForField(field));
+        }
+      }
+      if (!changedFields.length) {
+        canApplyChange = false;
+        warnings.push('The patch would not change any values');
+      }
+    }
+
+    return {
+      target: change.target,
+      before_snapshot: snapshot,
+      snapshot_hash: snapshotHash(snapshot),
+      changed_fields: changedFields.sort(),
+      required_scopes: uniqueScopes(scopes),
+      characters: { before: textCharacters(snapshot.html), after: afterCharacters },
+      lexical_nodes: nodes,
+      protected_nodes: protectedNodes,
+      warnings,
+      can_apply: canApplyChange,
+    };
+  }
+
+  async previewChanges(changes: ChangeRequest[]): Promise<ChangePreview> {
+    const keys = changes.map((change) => `${change.target.type}:${change.target.id}`);
+    if (new Set(keys).size !== keys.length) throw new Error('Change targets must be unique within the batch');
+    const snapshots = await Promise.all(changes.map((change) => this.changeSnapshot(change.target)));
+    const items = changes.map((change, index) => this.previewItem(change, snapshots[index]!));
+    return {
+      changes: items,
+      preview_hash: previewSignature(this.config.ghostAdminApiKey, this.config.ghostUrl, changes, items),
+    };
+  }
+
+  async applyChangeSet(
+    changes: ChangeRequest[],
+    previewHash: string,
+    scopes: Partial<Record<ChangeScope, true>>,
+  ) {
+    if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot apply changes');
+    const preview = await this.previewChanges(changes);
+    if (!sameSignature(preview.preview_hash, previewHash)) {
+      throw new Error('Preview hash does not match the current content and exact change set');
+    }
+    if (preview.changes.some((item) => !item.can_apply)) {
+      throw new Error('One or more changes cannot be applied; inspect the preview warnings');
+    }
+    if (preview.changes.some((item) => item.before_snapshot.status === 'published') && !canPublish(this.config)) {
+      throw new Error('The publisher permission profile is required to edit published content');
+    }
+    const requiredScopes = uniqueScopes(preview.changes.flatMap((item) => item.required_scopes));
+    const approvedScopes = Object.entries(scopes)
+      .filter(([, approved]) => approved === true)
+      .map(([scope]) => scope as ChangeScope)
+      .sort();
+    if (!equalValue(requiredScopes, approvedScopes)) {
+      throw new Error(`Approved scopes must exactly match: ${requiredScopes.join(', ')}`);
+    }
+
+    const succeeded: Record<string, unknown>[] = [];
+    const failed: { id: string; error: string }[] = [];
+    for (let index = 0; index < changes.length; index += 1) {
+      const change = changes[index]!;
+      const before = preview.changes[index]!;
+      try {
+        const resource = change.target.type === 'post' ? this.ghost.posts : this.ghost.pages;
+        if (change.operation.type === 'replace_body') {
+          await resource.edit(
+            {
+              id: change.target.id,
+              updated_at: change.target.updated_at,
+              ...ghostFields({ markdown: change.operation.markdown }),
+            },
+            { source: 'html', save_revision: true },
+          );
+        } else {
+          await resource.edit(
+            {
+              id: change.target.id,
+              updated_at: change.target.updated_at,
+              ...ghostFields(change.operation.patch),
+            },
+            { save_revision: true },
+          );
+        }
+        const after = (change.target.type === 'post'
+          ? await this.getPost(change.target.id)
+          : await this.getPage(change.target.id)) as ContentSnapshot;
+        const changedSnapshotFields =
+          change.operation.type === 'replace_body'
+            ? new Set(['html', 'lexical'])
+            : new Set(Object.keys(change.operation.patch).map(snapshotKey));
+        if (change.operation.type === 'update_fields' && 'slug' in change.operation.patch) {
+          changedSnapshotFields.add('url');
+        }
+        if (change.operation.type === 'update_fields') {
+          for (const [field, expected] of Object.entries(change.operation.patch)) {
+            if (!equalValue(snapshotField(after, field), expected)) {
+              throw new Error(`Ghost readback did not preserve the requested ${field} value`);
+            }
+          }
+        } else if (textCharacters(after.html) !== textCharacters(markdown.render(change.operation.markdown))) {
+          throw new Error('Ghost readback did not preserve the requested body');
+        }
+        const preservedFields = Object.keys(before.before_snapshot)
+          .filter((field) => field !== 'updated_at' && !changedSnapshotFields.has(field))
+          .sort();
+        for (const field of preservedFields) {
+          if (!equalValue(before.before_snapshot[field], after[field])) {
+            throw new Error(`Ghost readback detected an unexpected ${field} change`);
+          }
+        }
+        succeeded.push({
+          target: change.target,
+          before_snapshot: before.before_snapshot,
+          before_hash: before.snapshot_hash,
+          after_revision: {
+            updated_at: after.updated_at,
+            status: after.status,
+            snapshot_hash: snapshotHash(after),
+          },
+          changed_fields: before.changed_fields,
+          preserved_fields: preservedFields,
+          approved_scopes: approvedScopes,
+          ghost_readback: true,
+          revision_requested: true,
+          applied_at: new Date().toISOString(),
+        });
+      } catch (error) {
+        failed.push({ id: change.target.id, error: errorMessage(error, this.config) });
+        for (const remaining of changes.slice(index + 1)) {
+          failed.push({ id: remaining.target.id, error: 'Not attempted after an earlier write failed' });
+        }
+        break;
+      }
+    }
+    return {
+      succeeded,
+      failed,
+      partial_failure: succeeded.length > 0 && failed.length > 0,
+    };
+  }
+
   private async postBySlug(slug: string): Promise<any | undefined> {
     try {
       return await this.ghost.posts.read({ slug }, { formats: 'html' });
@@ -453,6 +707,7 @@ export class GhostPublisher {
   }
 
   async createDrafts(inputs: DraftInput[]): Promise<BatchResult> {
+    if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot create drafts');
     const prepared = inputs.map((input) => ({ ...input, slug: input.slug || slugify(input.title) }));
     if (prepared.some((input) => !input.slug)) throw new Error('Every draft needs a usable title or slug');
     if (new Set(prepared.map((input) => input.slug)).size !== prepared.length) {
@@ -479,6 +734,7 @@ export class GhostPublisher {
   }
 
   async createPageDrafts(inputs: PageInput[]): Promise<BatchResult<PageRef>> {
+    if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot create drafts');
     const prepared = inputs.map((input) => ({ ...input, slug: input.slug || slugify(input.title) }));
     if (prepared.some((input) => !input.slug)) throw new Error('Every page needs a usable title or slug');
     if (new Set(prepared.map((input) => input.slug)).size !== prepared.length) {
@@ -501,86 +757,6 @@ export class GhostPublisher {
     }
     result.partial_failure = result.succeeded.length > 0 && result.failed.length > 0;
     return result;
-  }
-
-  async updateDraft(
-    input: Partial<DraftInput> & {
-      id: string;
-      updated_at: string;
-      body_replacement_confirmed?: true;
-    },
-  ): Promise<PostRef> {
-    if (input.markdown !== undefined && input.body_replacement_confirmed !== true) {
-      throw new Error('Replacing a draft body requires body_replacement_confirmed=true');
-    }
-    const current = await this.ghost.posts.read({ id: input.id }, { formats: 'html', include: 'tags,authors' });
-    if (current.status !== 'draft') throw new Error('update_draft only accepts draft posts');
-    if (String(current.updated_at) !== input.updated_at) {
-      throw new Error('Draft changed since it was read; fetch it again before updating');
-    }
-    const updated = await this.ghost.posts.edit(
-      { id: input.id, updated_at: input.updated_at, ...ghostFields(input) },
-      input.markdown !== undefined ? { source: 'html' } : {},
-    );
-    return postRef(updated);
-  }
-
-  async updatePublishedPost(
-    input: PublishedPostPatch & { id: string; updated_at: string },
-  ): Promise<PostRef> {
-    if ('markdown' in input || 'html' in input || 'lexical' in input) {
-      throw new Error('Published article bodies are read-only');
-    }
-    const current = await this.ghost.posts.read({ id: input.id }, { include: 'tags,authors' });
-    if (current.status !== 'published') throw new Error('update_published_post only accepts published posts');
-    if (String(current.updated_at) !== input.updated_at) {
-      throw new Error('Post changed since it was read; fetch it again before updating');
-    }
-    const updated = await this.ghost.posts.edit(
-      { id: input.id, updated_at: input.updated_at, ...ghostFields(input) },
-      { save_revision: true },
-    );
-    return postRef(updated);
-  }
-
-  async updatePageDraft(
-    input: Partial<PageInput> & {
-      id: string;
-      updated_at: string;
-      body_replacement_confirmed?: true;
-    },
-  ): Promise<PageRef> {
-    if (input.markdown !== undefined && input.body_replacement_confirmed !== true) {
-      throw new Error('Replacing a page body requires body_replacement_confirmed=true');
-    }
-    const current = await this.ghost.pages.read({ id: input.id }, { formats: 'html' });
-    if (current.status !== 'draft') throw new Error('update_page_draft only accepts draft pages');
-    if (String(current.updated_at) !== input.updated_at) {
-      throw new Error('Page changed since it was read; fetch it again before updating');
-    }
-    const updated = await this.ghost.pages.edit(
-      { id: input.id, updated_at: input.updated_at, ...ghostFields(input) },
-      input.markdown !== undefined ? { source: 'html' } : {},
-    );
-    return pageRef(updated);
-  }
-
-  async updatePublishedPage(
-    input: PublishedPagePatch & { id: string; updated_at: string },
-  ): Promise<PageRef> {
-    if ('markdown' in input || 'html' in input || 'lexical' in input) {
-      throw new Error('Published page bodies are read-only');
-    }
-    const current = await this.ghost.pages.read({ id: input.id });
-    if (current.status !== 'published') throw new Error('update_published_page only accepts published pages');
-    if (String(current.updated_at) !== input.updated_at) {
-      throw new Error('Page changed since it was read; fetch it again before updating');
-    }
-    const updated = await this.ghost.pages.edit(
-      { id: input.id, updated_at: input.updated_at, ...ghostFields(input) },
-      { save_revision: true },
-    );
-    return pageRef(updated);
   }
 
   private async validateTransitions(
@@ -650,11 +826,13 @@ export class GhostPublisher {
     targets: TransitionTarget[],
     status: 'draft' | 'published',
   ): Promise<BatchResult> {
+    if (!canPublish(this.config)) throw new Error('The publisher permission profile is required');
     const expected = status === 'published' ? 'draft' : 'published';
     return this.editPostBatch(targets, expected, (target) => ({ ...target, status }), true);
   }
 
   async schedulePosts(targets: ScheduleTarget[]): Promise<BatchResult> {
+    if (!canSchedule(this.config)) throw new Error('The scheduler permission profile is required');
     if (targets.some((target) => !Number.isFinite(Date.parse(target.published_at)))) {
       throw new Error('Scheduled publication timestamps must be valid');
     }
@@ -670,6 +848,7 @@ export class GhostPublisher {
   }
 
   async unschedulePosts(targets: TransitionTarget[]): Promise<BatchResult> {
+    if (!canSchedule(this.config)) throw new Error('The scheduler permission profile is required');
     return this.editPostBatch(targets, 'scheduled', (target) => ({ ...target, status: 'draft' }), false);
   }
 
@@ -699,6 +878,7 @@ export class GhostPublisher {
     targets: TransitionTarget[],
     status: 'draft' | 'published',
   ): Promise<BatchResult<PageRef>> {
+    if (!canPublish(this.config)) throw new Error('The publisher permission profile is required');
     if (new Set(targets.map((target) => target.id)).size !== targets.length) {
       throw new Error('Page IDs must be unique within the batch');
     }
@@ -734,6 +914,7 @@ export class GhostPublisher {
   }
 
   async uploadImage(filePath: string): Promise<ImageAsset> {
+    if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot upload images');
     if (!this.config.uploadRoots.length) {
       throw new Error('GHOST_UPLOAD_ROOTS must be configured before uploading local files');
     }
@@ -779,6 +960,7 @@ export class GhostPublisher {
   }
 
   async triggerDeploy(): Promise<DeployResult> {
+    if (!canPublish(this.config)) throw new Error('The publisher permission profile is required');
     if (!this.config.deployHookUrl) throw new Error('GHOST_DEPLOY_HOOK_URL is not configured');
     const url = new URL(this.config.deployHookUrl);
     try {

@@ -1,6 +1,6 @@
 {
   "name": "ghost-publisher-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "mcpName": "io.github.BoraGkc/ghost-publisher",
   "description": "Local-first MCP server for safe Ghost posts, Pages, scheduling, images, and publishing.",
   "type": "module",

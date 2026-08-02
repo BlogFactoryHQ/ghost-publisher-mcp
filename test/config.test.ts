@@ -16,7 +16,9 @@ describe('configuration boundary', () => {
 
     expect(config.ghostUrl).toBe('https://example.com');
     expect(config.readOnly).toBe(true);
+    expect(config.permissionProfile).toBe('read-only');
     expect(publicConfig(config)).toMatchObject({
+      permission_profile: 'read-only',
       read_only: true,
       deploy_hook_host: 'deploy.example.com',
       page_live_check_configured: true,
@@ -75,9 +77,26 @@ describe('configuration boundary', () => {
     expect(() =>
       loadConfig({ GHOST_URL: 'https://example.com', GHOST_ADMIN_API_KEY: key, GHOST_READ_ONLY: 'yes' }),
     ).toThrow('GHOST_READ_ONLY must be true or false');
+    expect(() =>
+      loadConfig({
+        GHOST_URL: 'https://example.com',
+        GHOST_ADMIN_API_KEY: key,
+        GHOST_PERMISSION_PROFILE: 'scheduler',
+        GHOST_READ_ONLY: 'false',
+      }),
+    ).toThrow('cannot be used together');
+    expect(() =>
+      loadConfig({
+        GHOST_URL: 'https://example.com',
+        GHOST_ADMIN_API_KEY: key,
+        GHOST_PERMISSION_PROFILE: 'owner',
+      }),
+    ).toThrow('must be read-only, draft-editor, scheduler, or publisher');
   });
 
   it('defaults to read-write mode', () => {
-    expect(loadConfig({ GHOST_URL: 'https://example.com', GHOST_ADMIN_API_KEY: key }).readOnly).toBe(false);
+    const config = loadConfig({ GHOST_URL: 'https://example.com', GHOST_ADMIN_API_KEY: key });
+    expect(config.readOnly).toBe(false);
+    expect(config.permissionProfile).toBe('publisher');
   });
 });

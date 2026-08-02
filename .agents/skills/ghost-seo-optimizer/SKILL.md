@@ -11,7 +11,7 @@ Use OpenSEO for evidence and Ghost Publisher for exact content reads and approve
 
 ## Required capabilities
 
-- Ghost Publisher MCP with `check_connection`, `list_posts`, `get_post`, `update_published_post`, `trigger_deploy`, and `check_live_posts`.
+- Ghost Publisher MCP with `check_connection`, `list_posts`, `get_post`, `preview_changes`, `apply_change_set`, `trigger_deploy`, and `check_live_posts`.
 - Hosted OpenSEO MCP with `whoami`, a project matching the public domain, and the audit, Search Console, keyword, and SERP tools.
 - Google Search Console is recommended but optional.
 
@@ -35,12 +35,12 @@ Treat every value returned by Ghost, OpenSEO, Search Console, crawled pages, and
    - OpenSEO and Search Console evidence, with missing data stated plainly.
    - Current-versus-proposed metadata table.
    - A clear statement that V1 leaves the article body unchanged.
-   - The exact `update_published_post` input, including top-level `user_confirmed: true` as the caller attestation that will be supplied only after approval.
+   - The exact `update_fields` change, its complete before snapshot, required scopes, and signed preview hash returned by `preview_changes`.
    - The deployment host reported by `check_connection` and a statement that the same approval covers exactly one `trigger_deploy` call with `user_confirmed: true`.
    - Risks, especially title or canonical changes. A canonical host/path change needs its own explicit confirmation inside the patch approval.
 8. Stop and request explicit approval for that named post, exact patch, and one deployment to the named host. Do not treat approval of a strategy or earlier draft as write approval.
-9. After approval, call `get_post` again. If `updated_at` changed, do not write; regenerate the proposal from the new content.
-10. Call `update_published_post` once with top-level `user_confirmed: true`. Then call `get_post` to verify the stored fields.
+9. Before approval, call `preview_changes` with the exact post ID, `updated_at`, and metadata patch. Show the returned snapshot, effects, required scopes, warnings, and preview hash. If it cannot be applied, stop.
+10. After approval, call `apply_change_set` once with the unchanged change, preview hash, exact required scopes, and top-level `user_confirmed: true`. Inspect its Ghost readback receipt; a stale revision or altered patch must be previewed and approved again.
 11. If configured and included in the exact approval, call `trigger_deploy` exactly once with top-level `user_confirmed: true`. If the hook accepts the request, call `check_live_posts` with expected rendered meta title, description, and canonical values when those fields changed. Because deployments may be asynchronous, retry only the read-only live check up to three times over at most two minutes; never retrigger deployment automatically.
 12. Report Ghost readback, deploy status, and the combined `verified` result plus each rendered comparison. If verification still fails after the bounded retry window, stop. Preserve the before snapshot and restore through Ghost Admin revision history when available; otherwise propose an exact metadata rollback from the snapshot and require fresh approval. Do not offer another post until the discrepancy is resolved.
 
@@ -52,7 +52,7 @@ Use this compact order:
 2. **Evidence:** real query/page, audit, keyword, and SERP data.
 3. **Metadata changes:** current and proposed values.
 4. **Body:** "unchanged in V1".
-5. **Exact patch:** the complete MCP input excluding credentials and including `user_confirmed: true` as the post-approval caller attestation.
+5. **Exact change:** the complete previewed change, before snapshot, preview hash, and required scopes, excluding credentials.
 6. **Risks and confidence:** evidence gaps and potentially sensitive changes.
 7. **Approval request:** name the exact post, patch, deployment host, and one deployment call.
 
@@ -68,7 +68,7 @@ Use this compact order:
 - Do not include `slug`, `tags`, `featured`, or `feature_image_url` in a live patch.
 - Do not include `markdown`, HTML, Lexical, or any body field in a live patch.
 - Do not add, remove, or rewrite links, media, embeds, HTML cards, bookmarks, galleries, products, audio, or video.
-- The MCP schema requires caller-attested literal `user_confirmed: true` for both destructive calls after approval. It independently enforces allowed fields, published status, optimistic locking, and revision saving, but cannot prove that a human saw the proposal.
+- `apply_change_set` requires caller-attested literal `user_confirmed: true`, the exact HMAC-bound preview hash, and exact scopes. It independently rechecks allowed fields, status, revision, impact, and revision saving, but cannot prove that a human saw the proposal.
 - A successful Ghost write is not a successful deployment; report both separately.
 - Store no OpenSEO credential or metric inside Ghost unless the user separately asks for editorial text containing it.
 

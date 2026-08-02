@@ -1,9 +1,12 @@
 import path from 'node:path';
 
+export type PermissionProfile = 'read-only' | 'draft-editor' | 'scheduler' | 'publisher';
+
 export type Config = {
   ghostUrl: string;
   ghostAdminApiKey: string;
   ghostApiVersion: string;
+  permissionProfile: PermissionProfile;
   readOnly: boolean;
   uploadRoots: string[];
   deployHookUrl?: string;
@@ -34,6 +37,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.GHOST_READ_ONLY && !['true', 'false'].includes(env.GHOST_READ_ONLY)) {
     throw new Error('GHOST_READ_ONLY must be true or false');
   }
+  if (env.GHOST_PERMISSION_PROFILE && env.GHOST_READ_ONLY !== undefined) {
+    throw new Error('GHOST_PERMISSION_PROFILE and GHOST_READ_ONLY cannot be used together');
+  }
+  const permissionProfile =
+    env.GHOST_PERMISSION_PROFILE ?? (env.GHOST_READ_ONLY === 'true' ? 'read-only' : 'publisher');
+  if (!['read-only', 'draft-editor', 'scheduler', 'publisher'].includes(permissionProfile)) {
+    throw new Error('GHOST_PERMISSION_PROFILE must be read-only, draft-editor, scheduler, or publisher');
+  }
 
   const uploadRoots = (env.GHOST_UPLOAD_ROOTS ?? '')
     .split(path.delimiter)
@@ -61,7 +72,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ghostUrl: safeUrl(env.GHOST_URL, 'GHOST_URL'),
     ghostAdminApiKey: env.GHOST_ADMIN_API_KEY,
     ghostApiVersion: env.GHOST_API_VERSION ?? 'v5.0',
-    readOnly: env.GHOST_READ_ONLY === 'true',
+    permissionProfile: permissionProfile as PermissionProfile,
+    readOnly: permissionProfile === 'read-only',
     uploadRoots,
     deployHookUrl,
     publicPostUrlTemplate,
@@ -73,6 +85,7 @@ export function publicConfig(config: Config) {
   return {
     ghost_url: config.ghostUrl,
     ghost_api_version: config.ghostApiVersion,
+    permission_profile: config.permissionProfile,
     read_only: config.readOnly,
     deploy_hook_configured: Boolean(config.deployHookUrl),
     ...(config.deployHookUrl ? { deploy_hook_host: new URL(config.deployHookUrl).host } : {}),
@@ -80,6 +93,18 @@ export function publicConfig(config: Config) {
     live_check_configured: Boolean(config.publicPostUrlTemplate),
     page_live_check_configured: Boolean(config.publicPageUrlTemplate),
   };
+}
+
+export function canEditDraft(config: Config): boolean {
+  return config.permissionProfile !== 'read-only';
+}
+
+export function canSchedule(config: Config): boolean {
+  return config.permissionProfile === 'scheduler' || config.permissionProfile === 'publisher';
+}
+
+export function canPublish(config: Config): boolean {
+  return config.permissionProfile === 'publisher';
 }
 
 export function redactSecrets(message: string, config: Config): string {

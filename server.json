@@ -6,12 +6,12 @@
     "url": "https://github.com/BoraGkc/ghost-publisher-mcp",
     "source": "github"
   },
-  "version": "0.5.0",
+  "version": "0.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "ghost-publisher-mcp",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "transport": {
         "type": "stdio"
       },
@@ -38,8 +38,15 @@
           "format": "string"
         },
         {
+          "name": "GHOST_PERMISSION_PROFILE",
+          "description": "Permission profile: read-only, draft-editor, scheduler, or publisher. Defaults to publisher.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
           "name": "GHOST_READ_ONLY",
-          "description": "Set to true to expose only read-only tools; defaults to false.",
+          "description": "Legacy alias for the read-only profile. Do not combine with GHOST_PERMISSION_PROFILE.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

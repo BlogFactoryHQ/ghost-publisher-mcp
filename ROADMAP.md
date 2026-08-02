@@ -6,7 +6,8 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 
 | Horizon | Milestone | Status | Plan |
 | --- | --- | --- | --- |
-| Current | v0.5.0 portable MCP prompts | Implemented in source; strict client gate blocked on 2026-07-21, so untagged and unpublished | [Future interoperability](docs/plans/future-interoperability.md) |
+| Current | v0.6.0 trust controls | Permission profiles and stateless, scope-bound change sets in release validation | [0.6 Trust controls](docs/plans/0.6-trust-controls.md) |
+| Shipped | v0.5.0 setup and portable MCP prompts | Published and verified on npm and the MCP Registry on 2026-08-02 | [Future interoperability](docs/plans/future-interoperability.md) |
 | Shipped | v0.4.1 release correction | Corrected npm documentation and published-package MCP smoke coverage | [0.4 Pages](docs/plans/0.4-pages.md) |
 | Shipped | v0.2.0 release hardening and SEO workflow | Included in the consolidated v0.4.0 release | [0.2 release](docs/plans/0.2-release.md), [SEO workflow](docs/plans/0.2-seo-workflow.md) |
 | Shipped | v0.2.1 cross-client onboarding | Included in the consolidated v0.4.0 release | [0.2.1 onboarding](docs/plans/0.2.1-onboarding.md) |
@@ -14,7 +15,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 | Shipped | v0.4.0 safe Pages vertical | Published and verified on 2026-07-21 | [0.4 Pages](docs/plans/0.4-pages.md) |
 | Demand-gated | Broader interoperability | No committed release beyond portable prompts | [Future interoperability](docs/plans/future-interoperability.md) |
 
-The npm package and official MCP Registry serve `0.4.1`; source prepares an untagged `0.5.0` candidate. Codex CLI `0.145.0-alpha.18` did not expose the candidate prompts, and Cursor plus Claude Desktop were unavailable on the release-test host. The strict client gate therefore blocks v0.5.0 publication and the start of v0.6.0.
+The npm package and official MCP Registry serve `0.5.0`; source prepares v0.6.0 trust controls. Codex setup/readback was smoke-tested with a desktop-bundled CLI. Cursor and Claude configuration generation is automated, while actual-client behavior remains explicitly unverified.
 
 ## Gap register
 
@@ -33,19 +34,20 @@ The npm package and official MCP Registry serve `0.4.1`; source prepares an unta
 | P2 | Patch semantics were incomplete | Add nullable draft fields and published feature-image replacement | Released in v0.4.0 |
 | P2 | Discovery was narrow | Add bounded author/date/order filters, not arbitrary NQL | Released in v0.4.0 |
 | P2 | Pages required Ghost Admin handoff | Add a separate guarded Pages workflow for Ghost-rendered and headless sites | Released in v0.4.0; monitor usage |
-| P3 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Implemented for v0.5.0; release smoke pending |
+| P0 | Generic update tools could bypass a visible diff | Replace them with HMAC-bound preview/apply and exact scopes | Implemented for v0.6.0; release validation pending |
+| P1 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Released in v0.5.0 |
 
 ## Delivery order
 
 1. v0.4.0 consolidated release and v0.4.1 documentation correction: complete.
-2. Smoke both portable prompts in current Codex, Cursor, and Claude Desktop releases, then publish v0.5.0 only if all three clients discover and invoke them.
-3. Monitor setup, scheduling, Pages, and prompt usage across supported clients.
-4. Correct release defects with the next patch version; never overwrite published versions.
-5. Reassess broader interoperability only from observed usage.
+2. v0.5.0 balanced Codex/client configuration gate: complete.
+3. Validate and publish v0.6.0 trust controls.
+4. Build v0.7.0 structure-safe editorial and scheduling workflows only after v0.6.0 ships.
+5. Correct release defects with the next patch version; never overwrite published versions.
 
 ## Non-goals
 
-Post/page deletion, tag administration, page scheduling, members, tiers, offers, newsletters, newsletter sending, themes, webhook modification, users, roles, site administration, remote HTTP transport, OAuth, raw Lexical editing, server-issued approval tokens, persistent approval state, automatic deployment retries, background scheduling, arbitrary NQL, full-body local search, databases, dashboards, telemetry, billing, and embedded AI providers are out of scope.
+Post/page deletion, tag administration, page scheduling, members, tiers, offers, newsletters, newsletter sending, themes, webhook modification, users, roles, site administration, remote HTTP transport, OAuth, server-issued approval tokens, persistent approval state, automatic deployment retries, background scheduling, arbitrary NQL, full-body local search, databases, dashboards, telemetry, billing, and embedded AI providers are out of scope.
 
 They require separate demand evidence and threat review. Remote transport needs a hosted-user requirement and threat model; membership/newsletters require a separate permission-scoped product surface; Lexical editing requires round-trip card fixtures and tested rollback.
 

@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { publicConfig, redactSecrets, type Config } from './config.js';
+import { canEditDraft, canPublish, canSchedule, publicConfig, redactSecrets, type Config } from './config.js';
 import { GhostPublisher } from './publisher.js';
 
 const packageVersion = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
@@ -113,7 +113,8 @@ const draftSchema = z.object({
   twitter_image: z.url().optional(),
 });
 
-const draftPatchSchema = draftSchema
+const draftFieldPatchSchema = draftSchema
+  .omit({ markdown: true })
   .partial()
   .extend({
     excerpt: nullableText(500).optional(),
@@ -133,68 +134,52 @@ const draftPatchSchema = draftSchema
   .refine((patch) => Object.keys(patch).length > 0, { message: 'Provide at least one field to update' });
 
 const pageDraftSchema = draftSchema.omit({ tags: true, authors: true, featured: true }).strict();
-const pageDraftPatchSchema = pageDraftSchema
-  .partial()
-  .extend({
-    excerpt: nullableText(500).optional(),
-    feature_image_url: nullableUrl.optional(),
-    feature_image_alt: nullableText(500).optional(),
-    feature_image_caption: nullableText(1000).optional(),
-    meta_title: nullableText(300).optional(),
-    meta_description: nullableText(500).optional(),
-    canonical_url: nullableUrl.optional(),
-    og_title: nullableText(300).optional(),
-    og_description: nullableText(500).optional(),
-    og_image: nullableUrl.optional(),
-    twitter_title: nullableText(300).optional(),
-    twitter_description: nullableText(500).optional(),
-    twitter_image: nullableUrl.optional(),
-  })
-  .refine((patch) => Object.keys(patch).length > 0, { message: 'Provide at least one field to update' });
 
-const updateDraftSchema = z
+const changeTargetSchema = z.object({
+  type: z.enum(['post', 'page']),
+  id: ghostIdSchema,
+  updated_at: timestampSchema,
+});
+const changeOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('update_fields'), patch: draftFieldPatchSchema }),
+  z.object({ type: z.literal('replace_body'), markdown: z.string().min(1) }),
+]);
+const changeSchema = z.object({ target: changeTargetSchema, operation: changeOperationSchema });
+const changesSchema = z.array(changeSchema).min(1).max(25);
+const changeScopesSchema = z
   .object({
-    id: ghostIdSchema,
-    updated_at: timestampSchema,
-    patch: draftPatchSchema,
-    body_replacement_confirmed: z.literal(true).optional(),
+    body: z.literal(true).optional(),
+    title: z.literal(true).optional(),
+    slug: z.literal(true).optional(),
+    taxonomy: z.literal(true).optional(),
+    feature_image: z.literal(true).optional(),
+    metadata: z.literal(true).optional(),
   })
-  .refine((input) => input.patch.markdown === undefined || input.body_replacement_confirmed === true, {
-    message: 'Replacing a draft body requires body_replacement_confirmed=true',
-    path: ['body_replacement_confirmed'],
-  });
-
-const updatePageDraftSchema = z
-  .object({
-    id: ghostIdSchema,
-    updated_at: timestampSchema,
-    patch: pageDraftPatchSchema,
-    body_replacement_confirmed: z.literal(true).optional(),
-  })
-  .refine((input) => input.patch.markdown === undefined || input.body_replacement_confirmed === true, {
-    message: 'Replacing a page body requires body_replacement_confirmed=true',
-    path: ['body_replacement_confirmed'],
-  });
-
-const publishedPatchSchema = z
-  .object({
-    title: z.string().min(1).max(300).optional(),
-    excerpt: nullableText(500).optional(),
-    feature_image_url: nullableUrl.optional(),
-    feature_image_alt: nullableText(500).optional(),
-    feature_image_caption: nullableText(1000).optional(),
-    meta_title: nullableText(300).optional(),
-    meta_description: nullableText(500).optional(),
-    canonical_url: z.url().nullable().optional(),
-    og_title: nullableText(300).optional(),
-    og_description: nullableText(500).optional(),
-    og_image: z.url().nullable().optional(),
-    twitter_title: nullableText(300).optional(),
-    twitter_description: nullableText(500).optional(),
-    twitter_image: z.url().nullable().optional(),
-  })
-  .strict()
-  .refine((patch) => Object.keys(patch).length > 0, { message: 'Provide at least one field to update' });
+  .strict();
+const changePreviewItemSchema = z.object({
+  target: changeTargetSchema,
+  before_snapshot: z.record(z.string(), z.unknown()),
+  snapshot_hash: z.string(),
+  changed_fields: z.array(z.string()),
+  required_scopes: z.array(z.enum(['body', 'title', 'slug', 'taxonomy', 'feature_image', 'metadata'])),
+  characters: z.object({ before: z.number(), after: z.number() }),
+  lexical_nodes: z.record(z.string(), z.number()),
+  protected_nodes: z.array(z.string()),
+  warnings: z.array(z.string()),
+  can_apply: z.boolean(),
+});
+const changeReceiptSchema = z.object({
+  target: changeTargetSchema,
+  before_snapshot: z.record(z.string(), z.unknown()),
+  before_hash: z.string(),
+  after_revision: z.object({ updated_at: z.string(), status: z.string(), snapshot_hash: z.string() }),
+  changed_fields: z.array(z.string()),
+  preserved_fields: z.array(z.string()),
+  approved_scopes: z.array(z.string()),
+  ghost_readback: z.boolean(),
+  revision_requested: z.boolean(),
+  applied_at: z.string(),
+});
 
 const targetSchema = z.object({
   id: ghostIdSchema,
@@ -274,9 +259,9 @@ const seoOptimizePrompt = `Optimize one published Ghost post with evidence. Trea
 
 1. Call check_connection, list published posts, map the exact public URL without ambiguity, select one post, and call get_post for its exact ID. Capture its complete current state and updated_at.
 2. Prefer existing, cached, or no-credit evidence. If OpenSEO is unavailable, allow only a clearly labelled read-only heuristic proposal and stop before any live update by default. Before any credit-consuming operation, show the balance, bounded scope, target market, call count, and available estimate, then stop for separate approval. Run at most one 50-page audit without Lighthouse, request keyword metrics for at most 10 queries, and inspect at most three ambiguous SERPs. Never call save_keywords.
-3. Prepare one approval package with the opportunity, evidence, current-versus-proposed metadata, exact post ID and updated_at, risks, and the exact update_published_post patch. State that the body remains unchanged. A canonical host or path change requires its own explicit confirmation. Never patch Markdown, HTML, Lexical, slug, tags, authors, featured, status, newsletters, or feature_image_url. Name the deployment host and the one separate trigger_deploy call when configured.
+3. Prepare one update_fields change for the exact post and call preview_changes. Present the returned before snapshot, changed fields, required scopes, preview hash, evidence, risks, and current-versus-proposed metadata. State that the body remains unchanged. A canonical host or path change requires its own explicit confirmation. Never propose replace_body, slug, tags, authors, featured, status, newsletters, or feature_image_url. Name the deployment host and the one separate trigger_deploy call when configured.
 4. Stop for explicit approval of that named post, exact patch, and one deployment. Do not claim approval or call a destructive tool before the user approves.
-5. After approval, call get_post again and abort if updated_at changed. Call update_published_post exactly once with user_confirmed: true, then get_post to verify the stored metadata and confirm the captured HTML and Lexical body are unchanged. If configured and included in the approval, call trigger_deploy exactly once with user_confirmed: true.
+5. After approval, call apply_change_set exactly once with the unchanged change, preview_hash, exact required scopes, and user_confirmed: true. Inspect the receipt and confirm Ghost readback preserved the captured HTML and Lexical body. If configured and included in the approval, call trigger_deploy exactly once with user_confirmed: true.
 6. When check_connection reported live_check_configured: true, verify changed rendered metadata with check_live_posts. Otherwise report public verification as unavailable without repeating any write. If an asynchronous build is not ready, retry only that read-only check, at most three attempts over two minutes. Never retry the update or deployment. If verification still fails, stop and preserve the before snapshot for Ghost revision restore or a separately approved rollback.
 
 Never invent metrics, promise ranking gains, optimize multiple posts under one approval, or edit a published body.`;
@@ -299,7 +284,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
     { name: 'ghost-publisher-mcp', version: packageVersion },
     {
       instructions:
-        'Create post and page drafts first. Before updating, publishing, scheduling, or unpublishing, read the content and pass exact id and updated_at values. Destructive tools require user_confirmed=true after explicit approval for the exact action. Markdown draft updates replace the complete body and require body_replacement_confirmed=true. Successful publish and unpublish batches deploy exactly once when configured; scheduling never deploys or sends newsletters. Published metadata updates require one separate approved trigger_deploy call.',
+        'Create post and page drafts first. Preview every content edit with exact id and updated_at values, show the full snapshot, impact, hash, and required scopes, then call apply_change_set only after explicit approval for that exact change. Rich-card body replacement is blocked. Publishing and scheduling require separate literal user confirmation; scheduling never sends newsletters or deploys.',
     },
   );
   const fail = (error: unknown) => failure(error, publisher.config);
@@ -314,6 +299,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
         configuration: z.object({
           ghost_url: z.string(),
           ghost_api_version: z.string(),
+          permission_profile: z.enum(['read-only', 'draft-editor', 'scheduler', 'publisher']),
           read_only: z.boolean(),
           deploy_hook_configured: z.boolean(),
           deploy_hook_host: z.string().optional(),
@@ -464,7 +450,26 @@ export function createServer(publisher: GhostPublisher): McpServer {
     },
   );
 
-  if (!publisher.config.readOnly) {
+  server.registerTool(
+    'preview_changes',
+    {
+      title: 'Preview exact Ghost changes',
+      description: 'Read up to 25 exact posts or Pages and return full before snapshots, field and Lexical impact, required approval scopes, and a site-bound stateless preview hash. This tool never writes.',
+      inputSchema: z.object({ changes: changesSchema }),
+      outputSchema: z.object({ changes: z.array(changePreviewItemSchema), preview_hash: z.string() }),
+      annotations: readOnly,
+    },
+    async ({ changes }) => {
+      try {
+        const data = await publisher.previewChanges(changes);
+        return success(data, `Previewed ${data.changes.length} exact change(s); no content was written`);
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  if (canEditDraft(publisher.config)) {
     server.registerTool(
       'create_drafts',
       {
@@ -504,90 +509,27 @@ export function createServer(publisher: GhostPublisher): McpServer {
     );
 
     server.registerTool(
-      'update_draft',
+      'apply_change_set',
       {
-        title: 'Update a Ghost draft',
-        description: 'Patch one draft using its current updated_at value. Markdown replaces the complete body and requires body_replacement_confirmed=true because Ghost HTML-to-Lexical conversion can be lossy. Published and scheduled posts are refused.',
-        inputSchema: updateDraftSchema,
-        outputSchema: z.object({ post: postRefSchema }),
-        annotations: write,
-      },
-      async ({ id, updated_at, patch, body_replacement_confirmed }) => {
-        try {
-          const post = await publisher.updateDraft({ id, updated_at, ...patch, body_replacement_confirmed });
-          return success({ post }, `Updated draft ${post.title}`);
-        } catch (error) {
-          return fail(error);
-        }
-      },
-    );
-
-    server.registerTool(
-      'update_page_draft',
-      {
-        title: 'Update a Ghost page draft',
-        description: 'Patch one unchanged page draft. Markdown replaces the complete body and requires body_replacement_confirmed=true.',
-        inputSchema: updatePageDraftSchema,
-        outputSchema: z.object({ page: pageRefSchema }),
-        annotations: write,
-      },
-      async ({ id, updated_at, patch, body_replacement_confirmed }) => {
-        try {
-          const page = await publisher.updatePageDraft({
-            id,
-            updated_at,
-            ...patch,
-            body_replacement_confirmed,
-          });
-          return success({ page }, `Updated page draft ${page.title}`);
-        } catch (error) {
-          return fail(error);
-        }
-      },
-    );
-
-    server.registerTool(
-      'update_published_post',
-      {
-        title: 'Update a published Ghost post',
-        description: 'Update approved metadata on one published post. Requires user_confirmed=true for the exact post and patch, uses updated_at collision protection, saves a Ghost revision, preserves published status, and never replaces the body.',
+        title: 'Apply one approved Ghost change set',
+        description: 'Re-read and preflight the exact previewed batch, require an exact site-bound preview hash plus exact approval scopes, save a Ghost revision for every edit, verify readback, and stop after the first remote failure.',
         inputSchema: z.object({
-          id: targetSchema.shape.id,
-          updated_at: timestampSchema,
-          patch: publishedPatchSchema,
+          changes: changesSchema,
+          preview_hash: z.string().min(20),
           user_confirmed: z.literal(true),
+          scopes: changeScopesSchema,
         }),
-        outputSchema: z.object({ post: postRefSchema }),
+        outputSchema: z.object({
+          succeeded: z.array(changeReceiptSchema),
+          failed: z.array(z.object({ id: z.string(), error: z.string() })),
+          partial_failure: z.boolean(),
+        }),
         annotations: destructive,
       },
-      async ({ id, updated_at, patch }) => {
+      async ({ changes, preview_hash, scopes }) => {
         try {
-          const post = await publisher.updatePublishedPost({ id, updated_at, ...patch });
-          return success({ post }, `Updated published post ${post.title}`);
-        } catch (error) {
-          return fail(error);
-        }
-      },
-    );
-
-    server.registerTool(
-      'update_published_page',
-      {
-        title: 'Update a published Ghost page',
-        description: 'Update approved metadata on one published page. Requires user_confirmed=true, saves a revision, preserves published status, and never replaces the body.',
-        inputSchema: z.object({
-          id: targetSchema.shape.id,
-          updated_at: timestampSchema,
-          patch: publishedPatchSchema,
-          user_confirmed: z.literal(true),
-        }),
-        outputSchema: z.object({ page: pageRefSchema }),
-        annotations: destructive,
-      },
-      async ({ id, updated_at, patch }) => {
-        try {
-          const page = await publisher.updatePublishedPage({ id, updated_at, ...patch });
-          return success({ page }, `Updated published page ${page.title}`);
+          const data = await publisher.applyChangeSet(changes, preview_hash, scopes);
+          return success(data, `${data.succeeded.length} applied, ${data.failed.length} failed`, data.failed.length > 0);
         } catch (error) {
           return fail(error);
         }
@@ -613,7 +555,8 @@ export function createServer(publisher: GhostPublisher): McpServer {
       },
     );
 
-    for (const [name, status, title] of [
+    if (canPublish(publisher.config)) {
+      for (const [name, status, title] of [
       ['publish_posts', 'published', 'Publish Ghost posts'],
       ['unpublish_posts', 'draft', 'Unpublish Ghost posts'],
     ] as const) {
@@ -637,9 +580,9 @@ export function createServer(publisher: GhostPublisher): McpServer {
           }
         },
       );
-    }
+      }
 
-    for (const [name, status, title] of [
+      for (const [name, status, title] of [
       ['publish_pages', 'published', 'Publish Ghost pages'],
       ['unpublish_pages', 'draft', 'Unpublish Ghost pages'],
     ] as const) {
@@ -663,50 +606,54 @@ export function createServer(publisher: GhostPublisher): McpServer {
           }
         },
       );
+      }
     }
 
-    server.registerTool(
-      'schedule_posts',
-      {
-        title: 'Schedule Ghost posts',
-        description: 'Schedule exact current drafts for future web publication. Requires user_confirmed=true and never sends newsletters or triggers deployment.',
-        inputSchema: z.object({
-          posts: z.array(scheduleTargetSchema).min(1).max(25),
-          user_confirmed: z.literal(true),
-        }),
-        outputSchema: batchSchema,
-        annotations: destructive,
-      },
-      async ({ posts }) => {
-        try {
-          const data = await publisher.schedulePosts(posts);
-          return success(data, `${data.succeeded.length} scheduled, ${data.failed.length} failed`);
-        } catch (error) {
-          return fail(error);
-        }
-      },
-    );
+    if (canSchedule(publisher.config)) {
+      server.registerTool(
+        'schedule_posts',
+        {
+          title: 'Schedule Ghost posts',
+          description: 'Schedule exact current drafts for future web publication. Requires user_confirmed=true and never sends newsletters or triggers deployment.',
+          inputSchema: z.object({
+            posts: z.array(scheduleTargetSchema).min(1).max(25),
+            user_confirmed: z.literal(true),
+          }),
+          outputSchema: batchSchema,
+          annotations: destructive,
+        },
+        async ({ posts }) => {
+          try {
+            const data = await publisher.schedulePosts(posts);
+            return success(data, `${data.succeeded.length} scheduled, ${data.failed.length} failed`);
+          } catch (error) {
+            return fail(error);
+          }
+        },
+      );
 
-    server.registerTool(
-      'unschedule_posts',
-      {
-        title: 'Unschedule Ghost posts',
-        description: 'Return exact current scheduled posts to draft. Requires user_confirmed=true and never triggers deployment.',
-        inputSchema: z.object({ posts: z.array(targetSchema).min(1).max(25), user_confirmed: z.literal(true) }),
-        outputSchema: batchSchema,
-        annotations: destructive,
-      },
-      async ({ posts }) => {
-        try {
-          const data = await publisher.unschedulePosts(posts);
-          return success(data, `${data.succeeded.length} unscheduled, ${data.failed.length} failed`);
-        } catch (error) {
-          return fail(error);
-        }
-      },
-    );
+      server.registerTool(
+        'unschedule_posts',
+        {
+          title: 'Unschedule Ghost posts',
+          description: 'Return exact current scheduled posts to draft. Requires user_confirmed=true and never triggers deployment.',
+          inputSchema: z.object({ posts: z.array(targetSchema).min(1).max(25), user_confirmed: z.literal(true) }),
+          outputSchema: batchSchema,
+          annotations: destructive,
+        },
+        async ({ posts }) => {
+          try {
+            const data = await publisher.unschedulePosts(posts);
+            return success(data, `${data.succeeded.length} unscheduled, ${data.failed.length} failed`);
+          } catch (error) {
+            return fail(error);
+          }
+        },
+      );
+    }
 
-    server.registerTool(
+    if (canPublish(publisher.config)) {
+      server.registerTool(
       'trigger_deploy',
       {
         title: 'Trigger site deployment',
@@ -727,9 +674,9 @@ export function createServer(publisher: GhostPublisher): McpServer {
           return fail(error);
         }
       },
-    );
+      );
 
-    server.registerPrompt(
+      server.registerPrompt(
       'ghost_safe_publish',
       {
         title: 'Safely publish Ghost content',
@@ -739,9 +686,9 @@ export function createServer(publisher: GhostPublisher): McpServer {
         description: 'Safely review, approve, publish, deploy, and verify one exact Ghost batch.',
         messages: [{ role: 'user', content: { type: 'text', text: safePublishPrompt } }],
       }),
-    );
+      );
 
-    server.registerPrompt(
+      server.registerPrompt(
       'ghost_seo_optimize',
       {
         title: 'Optimize one Ghost post',
@@ -751,7 +698,8 @@ export function createServer(publisher: GhostPublisher): McpServer {
         description: 'Optimize one published Ghost post without changing its body.',
         messages: [{ role: 'user', content: { type: 'text', text: seoOptimizePrompt } }],
       }),
-    );
+      );
+    }
   }
 
   server.registerTool(

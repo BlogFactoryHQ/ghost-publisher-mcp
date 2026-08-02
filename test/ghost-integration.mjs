@@ -67,6 +67,7 @@ const config = {
   ghostUrl,
   ghostAdminApiKey: adminKey,
   ghostApiVersion: 'v5.0',
+  permissionProfile: 'publisher',
   readOnly: false,
   uploadRoots: [uploadRoot],
 };
@@ -74,6 +75,16 @@ const publisher = new GhostPublisher(config);
 const api = new GhostAdminAPI({ url: ghostUrl, key: adminKey, version: 'v5.0' });
 let created;
 let createdPage;
+
+async function applyExact(changes) {
+  const preview = await publisher.previewChanges(changes);
+  assert.equal(preview.changes.every((change) => change.can_apply), true, JSON.stringify(preview.changes));
+  const scopes = Object.fromEntries(preview.changes.flatMap((change) => change.required_scopes).map((scope) => [scope, true]));
+  const result = await publisher.applyChangeSet(changes, preview.preview_hash, scopes);
+  assert.equal(result.failed.length, 0, JSON.stringify(result));
+  assert.equal(result.succeeded.length, changes.length);
+  return result.succeeded[0];
+}
 
 try {
   const image = await publisher.uploadImage(imagePath);
@@ -99,14 +110,16 @@ try {
   assert.equal(created.status, 'draft');
   assert.deepEqual(created.authors.map((author) => author.id), [owner.id]);
 
-  const updated = await publisher.updateDraft({
-    id: created.id,
-    updated_at: created.updated_at,
-    excerpt: null,
-    feature_image_url: image.url,
-    tags: [],
-    authors: [owner.id],
-  });
+  const updatedReceipt = await applyExact([
+    {
+      target: { type: 'post', id: created.id, updated_at: created.updated_at },
+      operation: {
+        type: 'update_fields',
+        patch: { excerpt: null, feature_image_url: image.url, tags: [], authors: [owner.id] },
+      },
+    },
+  ]);
+  const updated = await publisher.getPost(updatedReceipt.target.id);
   const scheduled = await publisher.schedulePosts([
     {
       id: updated.id,
@@ -130,22 +143,27 @@ try {
   );
   assert.equal(published.succeeded[0]?.status, 'published');
   const publishedDetails = await publisher.getPost(published.succeeded[0].id);
-  const optimized = await publisher.updatePublishedPost({
-    id: publishedDetails.id,
-    updated_at: publishedDetails.updated_at,
-    feature_image_url: null,
-    meta_title: 'Integration SEO title',
-    meta_description: 'Updated published SEO metadata',
-  });
-  assert.equal(optimized.status, 'published');
-  const optimizedDetails = await publisher.getPost(optimized.id);
+  const optimizedReceipt = await applyExact([
+    {
+      target: { type: 'post', id: publishedDetails.id, updated_at: publishedDetails.updated_at },
+      operation: {
+        type: 'update_fields',
+        patch: {
+          feature_image_url: null,
+          meta_title: 'Integration SEO title',
+          meta_description: 'Updated published SEO metadata',
+        },
+      },
+    },
+  ]);
+  const optimizedDetails = await publisher.getPost(optimizedReceipt.target.id);
   assert.equal(optimizedDetails.status, 'published');
   assert.equal(optimizedDetails.feature_image, null);
   assert.equal(optimizedDetails.meta_title, 'Integration SEO title');
   assert.equal(optimizedDetails.meta_description, 'Updated published SEO metadata');
   assert.match(optimizedDetails.html, /It works/);
   const unpublished = await publisher.transitionPosts(
-    [{ id: optimized.id, updated_at: optimized.updated_at }],
+    [{ id: optimizedDetails.id, updated_at: optimizedDetails.updated_at }],
     'draft',
   );
   assert.equal(unpublished.succeeded[0]?.status, 'draft');
@@ -157,13 +175,20 @@ try {
   assert.equal(pageBatch.failed.length, 0);
   createdPage = pageBatch.succeeded[0];
   assert.equal(createdPage.status, 'draft');
-  const updatedPage = await publisher.updatePageDraft({
-    id: createdPage.id,
-    updated_at: createdPage.updated_at,
-    markdown: '# Page works\n\nUpdated safely.',
-    body_replacement_confirmed: true,
-    excerpt: 'Integration page excerpt',
-  });
+  const bodyReceipt = await applyExact([
+    {
+      target: { type: 'page', id: createdPage.id, updated_at: createdPage.updated_at },
+      operation: { type: 'replace_body', markdown: '# Page works\n\nUpdated safely.' },
+    },
+  ]);
+  const bodyPage = await publisher.getPage(bodyReceipt.target.id);
+  const metadataReceipt = await applyExact([
+    {
+      target: { type: 'page', id: bodyPage.id, updated_at: bodyPage.updated_at },
+      operation: { type: 'update_fields', patch: { excerpt: 'Integration page excerpt' } },
+    },
+  ]);
+  const updatedPage = await publisher.getPage(metadataReceipt.target.id);
   const publishedPage = await publisher.transitionPages(
     [{ id: updatedPage.id, updated_at: updatedPage.updated_at }],
     'published',
@@ -171,13 +196,19 @@ try {
   assert.equal(publishedPage.succeeded[0]?.status, 'published');
   const pageDetails = await publisher.getPage(publishedPage.succeeded[0].id);
   assert.match(pageDetails.html, /Updated safely/);
-  const optimizedPage = await publisher.updatePublishedPage({
-    id: pageDetails.id,
-    updated_at: pageDetails.updated_at,
-    meta_title: 'Integration page SEO title',
-    meta_description: 'Integration page SEO description',
-  });
-  const optimizedPageDetails = await publisher.getPage(optimizedPage.id);
+  const optimizedPageReceipt = await applyExact([
+    {
+      target: { type: 'page', id: pageDetails.id, updated_at: pageDetails.updated_at },
+      operation: {
+        type: 'update_fields',
+        patch: {
+          meta_title: 'Integration page SEO title',
+          meta_description: 'Integration page SEO description',
+        },
+      },
+    },
+  ]);
+  const optimizedPageDetails = await publisher.getPage(optimizedPageReceipt.target.id);
   assert.equal(optimizedPageDetails.status, 'published');
   assert.match(optimizedPageDetails.html, /Updated safely/);
   const livePage = await publisher.checkLivePages([
