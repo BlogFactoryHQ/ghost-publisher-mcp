@@ -120,22 +120,38 @@ try {
     },
   ]);
   const updated = await publisher.getPost(updatedReceipt.target.id);
-  const scheduled = await publisher.schedulePosts([
-    {
-      id: updated.id,
-      updated_at: updated.updated_at,
-      published_at: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
-    },
-  ]);
+  const start = new Date(Date.now() + 60 * 60 * 1_000).toISOString().replace(/Z$/, '');
+  const schedulePlan = await publisher.planSchedule(
+    [{ id: updated.id, updated_at: updated.updated_at }],
+    start,
+    'UTC',
+    24,
+  );
+  const scheduled = await publisher.schedulePosts(
+    schedulePlan.posts.map(({ id, updated_at, published_at }) => ({ id, updated_at, published_at })),
+    schedulePlan.plan_hash,
+  );
   assert.equal(scheduled.succeeded[0]?.status, 'scheduled');
   const unscheduled = await publisher.unschedulePosts([
     { id: scheduled.succeeded[0].id, updated_at: scheduled.succeeded[0].updated_at },
   ]);
   assert.equal(unscheduled.succeeded[0]?.status, 'draft');
-  const draftDetails = await publisher.getPost(unscheduled.succeeded[0].id);
+  let draftDetails = await publisher.getPost(unscheduled.succeeded[0].id);
   assert.equal(draftDetails.custom_excerpt, null);
   assert.equal(draftDetails.feature_image, image.url);
   assert.deepEqual(draftDetails.authors.map((author) => author.id), [owner.id]);
+
+  const originalChildren = JSON.parse(draftDetails.lexical).root.children;
+  const sectionReceipt = await applyExact([
+    {
+      target: { type: 'post', id: draftDetails.id, updated_at: draftDetails.updated_at },
+      operation: { type: 'append_section', markdown: '## Sources\n\n[Ghost](https://ghost.org)' },
+    },
+  ]);
+  draftDetails = await publisher.getPost(sectionReceipt.target.id);
+  const sectionChildren = JSON.parse(draftDetails.lexical).root.children;
+  assert.equal(sectionChildren.at(-1).type, 'html');
+  assert.deepEqual(sectionChildren.slice(0, -1), originalChildren);
 
   const published = await publisher.transitionPosts(
     [{ id: draftDetails.id, updated_at: draftDetails.updated_at }],

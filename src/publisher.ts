@@ -2,6 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { open, realpath } from 'node:fs/promises';
 import { BlockList, isIP } from 'node:net';
 import path from 'node:path';
+import { Temporal } from '@js-temporal/polyfill';
 import GhostAdminAPI from '@tryghost/admin-api';
 import { fileTypeFromBuffer } from 'file-type';
 import FormData from 'form-data';
@@ -9,9 +10,15 @@ import MarkdownIt from 'markdown-it';
 import { canEditDraft, canPublish, canSchedule, redactSecrets, type Config } from './config.js';
 import {
   canonicalJson,
+  insertHtmlSection,
+  lexicalHeadings,
   lexicalInventory,
+  lexicalLinks,
+  parseLexical,
   previewSignature,
+  replaceUniqueText,
   sameSignature,
+  signedPayload,
   scopeForField,
   snapshotHash,
   textCharacters,
@@ -512,6 +519,8 @@ export class GhostPublisher {
     const changedFields: string[] = [];
     const scopes: ChangeScope[] = [];
     let afterCharacters = textCharacters(snapshot.html);
+    let afterNodes = { ...nodes };
+    let removedNodes: string[] = [];
     let canApplyChange = snapshot.status === 'draft' || snapshot.status === 'published';
 
     if (change.operation.type === 'replace_body') {
@@ -525,6 +534,43 @@ export class GhostPublisher {
       if (protectedNodes.length) {
         canApplyChange = false;
         warnings.push(`Body replacement is blocked by protected Lexical nodes: ${protectedNodes.join(', ')}`);
+      }
+      afterNodes = {};
+      removedNodes = Object.keys(nodes).filter((node) => node !== 'root').sort();
+    } else if (change.operation.type === 'append_section' || change.operation.type === 'prepend_section') {
+      changedFields.push('body');
+      scopes.push('body');
+      if (snapshot.status !== 'draft') {
+        canApplyChange = false;
+        warnings.push('Structure-safe body changes accept drafts only');
+      }
+      try {
+        const rendered = markdown.render(change.operation.markdown);
+        const planned = insertHtmlSection(
+          snapshot.lexical,
+          rendered,
+          change.operation.type === 'append_section' ? 'append' : 'prepend',
+        );
+        afterCharacters += textCharacters(rendered);
+        afterNodes = lexicalInventory(planned).nodes;
+      } catch (error) {
+        canApplyChange = false;
+        warnings.push(error instanceof Error ? error.message : String(error));
+      }
+    } else if (change.operation.type === 'replace_exact_text') {
+      changedFields.push('body');
+      scopes.push('body');
+      if (snapshot.status !== 'draft') {
+        canApplyChange = false;
+        warnings.push('Structure-safe body changes accept drafts only');
+      }
+      try {
+        const planned = replaceUniqueText(snapshot.lexical, change.operation.find, change.operation.replace);
+        afterCharacters += change.operation.replace.length - change.operation.find.length;
+        afterNodes = lexicalInventory(planned).nodes;
+      } catch (error) {
+        canApplyChange = false;
+        warnings.push(error instanceof Error ? error.message : String(error));
       }
     } else {
       const patch = change.operation.patch;
@@ -562,6 +608,8 @@ export class GhostPublisher {
       required_scopes: uniqueScopes(scopes),
       characters: { before: textCharacters(snapshot.html), after: afterCharacters },
       lexical_nodes: nodes,
+      after_lexical_nodes: afterNodes,
+      removed_nodes: removedNodes,
       protected_nodes: protectedNodes,
       warnings,
       can_apply: canApplyChange,
@@ -569,6 +617,7 @@ export class GhostPublisher {
   }
 
   async previewChanges(changes: ChangeRequest[]): Promise<ChangePreview> {
+    if (!changes.length || changes.length > 25) throw new Error('Change sets require 1 to 25 targets');
     const keys = changes.map((change) => `${change.target.type}:${change.target.id}`);
     if (new Set(keys).size !== keys.length) throw new Error('Change targets must be unique within the batch');
     const snapshots = await Promise.all(changes.map((change) => this.changeSnapshot(change.target)));
@@ -576,6 +625,47 @@ export class GhostPublisher {
     return {
       changes: items,
       preview_hash: previewSignature(this.config.ghostAdminApiKey, this.config.ghostUrl, changes, items),
+    };
+  }
+
+  async auditContent(targets: ChangeRequest['target'][]) {
+    if (!targets.length || targets.length > 25) throw new Error('Audits require 1 to 25 targets');
+    const keys = targets.map((target) => `${target.type}:${target.id}`);
+    if (new Set(keys).size !== keys.length) throw new Error('Audit targets must be unique');
+    const snapshots = await Promise.all(targets.map((target) => this.changeSnapshot(target)));
+    return {
+      audits: snapshots.map((snapshot, index) => {
+        let lexicalParseable = true;
+        let nodes: Record<string, number> = {};
+        let protectedNodes: string[] = [];
+        let links: ReturnType<typeof lexicalLinks> = [];
+        let text: string[] = [];
+        try {
+          ({ nodes, protectedNodes } = lexicalInventory(snapshot.lexical));
+          links = lexicalLinks(snapshot.lexical);
+          text = lexicalHeadings(snapshot.lexical);
+        } catch {
+          lexicalParseable = false;
+        }
+        const missingMetadata = ['meta_title', 'meta_description', 'canonical_url'].filter(
+          (field) => !snapshot[field],
+        );
+        return {
+          target: targets[index]!,
+          lexical_parseable: lexicalParseable,
+          lexical_nodes: nodes,
+          protected_nodes: protectedNodes,
+          feature_image_missing_alt: Boolean(snapshot.feature_image && !snapshot.feature_image_alt),
+          missing_metadata_fields: missingMetadata,
+          lengths: {
+            title: String(snapshot.title).length,
+            meta_title: String(snapshot.meta_title ?? '').length,
+            meta_description: String(snapshot.meta_description ?? '').length,
+          },
+          links_and_citations: links,
+          sources_section_found: text.some((value) => /^(kaynaklar|sources)\s*:?$/i.test(value.trim())),
+        };
+      }),
     };
   }
 
@@ -605,12 +695,13 @@ export class GhostPublisher {
     }
 
     const succeeded: Record<string, unknown>[] = [];
-    const failed: { id: string; error: string }[] = [];
+    const failed: Record<string, unknown>[] = [];
     for (let index = 0; index < changes.length; index += 1) {
       const change = changes[index]!;
       const before = preview.changes[index]!;
       try {
         const resource = change.target.type === 'post' ? this.ghost.posts : this.ghost.pages;
+        let plannedLexical: string | undefined;
         if (change.operation.type === 'replace_body') {
           await resource.edit(
             {
@@ -620,7 +711,7 @@ export class GhostPublisher {
             },
             { source: 'html', save_revision: true },
           );
-        } else {
+        } else if (change.operation.type === 'update_fields') {
           await resource.edit(
             {
               id: change.target.id,
@@ -629,12 +720,29 @@ export class GhostPublisher {
             },
             { save_revision: true },
           );
+        } else {
+          plannedLexical =
+            change.operation.type === 'replace_exact_text'
+              ? replaceUniqueText(
+                  before.before_snapshot.lexical,
+                  change.operation.find,
+                  change.operation.replace,
+                )
+              : insertHtmlSection(
+                  before.before_snapshot.lexical,
+                  markdown.render(change.operation.markdown),
+                  change.operation.type === 'append_section' ? 'append' : 'prepend',
+                );
+          await resource.edit(
+            { id: change.target.id, updated_at: change.target.updated_at, lexical: plannedLexical },
+            { save_revision: true },
+          );
         }
         const after = (change.target.type === 'post'
           ? await this.getPost(change.target.id)
           : await this.getPage(change.target.id)) as ContentSnapshot;
         const changedSnapshotFields =
-          change.operation.type === 'replace_body'
+          change.operation.type !== 'update_fields'
             ? new Set(['html', 'lexical'])
             : new Set(Object.keys(change.operation.patch).map(snapshotKey));
         if (change.operation.type === 'update_fields' && 'slug' in change.operation.patch) {
@@ -646,8 +754,22 @@ export class GhostPublisher {
               throw new Error(`Ghost readback did not preserve the requested ${field} value`);
             }
           }
-        } else if (textCharacters(after.html) !== textCharacters(markdown.render(change.operation.markdown))) {
-          throw new Error('Ghost readback did not preserve the requested body');
+        } else if (change.operation.type === 'replace_body') {
+          if (textCharacters(after.html) !== textCharacters(markdown.render(change.operation.markdown))) {
+            throw new Error('Ghost readback did not preserve the requested body');
+          }
+        } else if (change.operation.type === 'replace_exact_text') {
+          if (!equalValue(JSON.parse(after.lexical), JSON.parse(plannedLexical!))) {
+            throw new Error('Ghost readback did not preserve the exact text replacement');
+          }
+        } else {
+          const originalChildren = parseLexical(before.before_snapshot.lexical).root.children;
+          const afterChildren = parseLexical(after.lexical).root.children;
+          const preservedChildren =
+            change.operation.type === 'append_section' ? afterChildren.slice(0, -1) : afterChildren.slice(1);
+          if (afterChildren.length !== originalChildren.length + 1 || !equalValue(preservedChildren, originalChildren)) {
+            throw new Error('Ghost readback did not preserve the original Lexical children');
+          }
         }
         const preservedFields = Object.keys(before.before_snapshot)
           .filter((field) => field !== 'updated_at' && !changedSnapshotFields.has(field))
@@ -674,9 +796,35 @@ export class GhostPublisher {
           applied_at: new Date().toISOString(),
         });
       } catch (error) {
-        failed.push({ id: change.target.id, error: errorMessage(error, this.config) });
-        for (const remaining of changes.slice(index + 1)) {
-          failed.push({ id: remaining.target.id, error: 'Not attempted after an earlier write failed' });
+        failed.push({
+          target: change.target,
+          before_snapshot: before.before_snapshot,
+          before_hash: before.snapshot_hash,
+          changed_fields: before.changed_fields,
+          preserved_fields: [],
+          approved_scopes: approvedScopes,
+          revision_requested: true,
+          ghost_readback: false,
+          status: 'failed',
+          write_attempted: true,
+          error: errorMessage(error, this.config),
+        });
+        for (let remainingIndex = index + 1; remainingIndex < changes.length; remainingIndex += 1) {
+          const remaining = changes[remainingIndex]!;
+          const remainingPreview = preview.changes[remainingIndex]!;
+          failed.push({
+            target: remaining.target,
+            before_snapshot: remainingPreview.before_snapshot,
+            before_hash: remainingPreview.snapshot_hash,
+            changed_fields: remainingPreview.changed_fields,
+            preserved_fields: Object.keys(remainingPreview.before_snapshot).sort(),
+            approved_scopes: approvedScopes,
+            revision_requested: false,
+            ghost_readback: false,
+            status: 'not_attempted',
+            write_attempted: false,
+            error: 'Not attempted after an earlier write failed',
+          });
         }
         break;
       }
@@ -831,20 +979,98 @@ export class GhostPublisher {
     return this.editPostBatch(targets, expected, (target) => ({ ...target, status }), true);
   }
 
-  async schedulePosts(targets: ScheduleTarget[]): Promise<BatchResult> {
+  private schedulePlanHash(targets: ScheduleTarget[]): string {
+    return signedPayload(this.config.ghostAdminApiKey, {
+      schema_version: 1,
+      ghost_url: this.config.ghostUrl,
+      posts: targets,
+      newsletter: false,
+    });
+  }
+
+  async planSchedule(
+    posts: TransitionTarget[],
+    startLocal: string,
+    timezone: string,
+    intervalHours: number,
+  ) {
+    if (!posts.length || posts.length > 25) throw new Error('Schedule plans require 1 to 25 posts');
+    if (!Number.isInteger(intervalHours) || intervalHours < 1) {
+      throw new Error('interval_hours must be a positive whole number');
+    }
+    if (new Set(posts.map((post) => post.id)).size !== posts.length) {
+      throw new Error('Post IDs must be unique within the schedule plan');
+    }
+    const preflight = await this.validateTransitions(posts, 'draft');
+    if (preflight.errors.size) {
+      throw new Error(
+        `Schedule plan preflight failed: ${posts
+          .map((post) => `${post.id}: ${preflight.errors.get(post.id) ?? 'another target failed'}`)
+          .join('; ')}`,
+      );
+    }
+    const plain = Temporal.PlainDateTime.from(startLocal);
+    const start = plain.toZonedDateTime(timezone, { disambiguation: 'reject' });
+    const targets = posts.map((post, index) => {
+      const instant = start.toInstant().add({ hours: intervalHours * index });
+      return { ...post, published_at: instant.toString() };
+    });
+    return {
+      timezone,
+      interval_hours: intervalHours,
+      newsletter: false,
+      headless_visibility: this.config.publicPostUrlTemplate ? 'configured' : 'unverified',
+      posts: targets.map((target, index) => ({
+        order: index + 1,
+        ...target,
+        local_time: Temporal.Instant.from(target.published_at)
+          .toZonedDateTimeISO(timezone)
+          .toPlainDateTime()
+          .toString({ smallestUnit: 'second' }),
+      })),
+      plan_hash: this.schedulePlanHash(targets),
+    };
+  }
+
+  async schedulePosts(
+    targets: ScheduleTarget[],
+    planHash: string,
+  ): Promise<BatchResult & { newsletter: false; headless_visibility: 'configured' | 'unverified' }> {
     if (!canSchedule(this.config)) throw new Error('The scheduler permission profile is required');
+    if (!targets.length || targets.length > 25) throw new Error('Scheduling requires 1 to 25 posts');
     if (targets.some((target) => !Number.isFinite(Date.parse(target.published_at)))) {
       throw new Error('Scheduled publication timestamps must be valid');
     }
     if (targets.some((target) => Date.parse(target.published_at) <= Date.now())) {
       throw new Error('Scheduled publication timestamps must be in the future');
     }
-    return this.editPostBatch(
+    const preflight = await this.validateTransitions(targets, 'draft');
+    if (preflight.errors.size) {
+      return {
+        succeeded: [],
+        failed: targets.map((target) => ({
+          id: target.id,
+          error: preflight.errors.get(target.id) ?? 'Batch preflight aborted because another target failed',
+        })),
+        partial_failure: false,
+        newsletter: false,
+        headless_visibility: this.config.publicPostUrlTemplate ? 'configured' : 'unverified',
+      };
+    }
+    if (!sameSignature(this.schedulePlanHash(targets), planHash)) {
+      throw new Error('Schedule plan hash does not match the current site and exact post schedule');
+    }
+    const result = await this.editPostBatch(
       targets,
       'draft',
       (target) => ({ ...target, status: 'scheduled' }),
       false,
     );
+    return {
+      ...result,
+      newsletter: false,
+      headless_visibility: this.config.publicPostUrlTemplate ? 'configured' : 'unverified',
+    };
   }
 
   async unschedulePosts(targets: TransitionTarget[]): Promise<BatchResult> {

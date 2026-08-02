@@ -7,8 +7,8 @@ describe('release and documentation contracts', () => {
     const packageMetadata = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
 
     expect(readme).toContain(`Source release candidate: \`${packageMetadata.version}\``);
-    expect(readme).toContain('latest published npm and official MCP Registry release remains `0.5.0`');
-    expect(readme).toContain('ghost-publisher-mcp@0.5.0');
+    expect(readme).toContain('latest published npm and official MCP Registry release remains `0.6.0`');
+    expect(readme).toContain('ghost-publisher-mcp@0.6.0');
     expect(readme).not.toContain(`ghost-publisher-mcp@${packageMetadata.version}`);
     expect(readme).not.toContain('Use the published `0.1.1` release now');
   });
