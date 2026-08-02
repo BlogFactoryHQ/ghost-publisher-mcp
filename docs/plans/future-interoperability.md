@@ -1,6 +1,6 @@
 # Future Interoperability Plan
 
-Status: portable prompts implemented for the v0.5.0 release candidate; broader interoperability remains demand-gated.
+Status: portable prompts and the balanced client gate shipped in v0.5.0; broader interoperability remains demand-gated.
 
 ## Portable MCP prompts
 
@@ -11,7 +11,7 @@ Normal mode exposes two zero-argument prompts for clients that support MCP promp
 
 Both prompts treat Ghost, crawl, SEO, query, and SERP content as untrusted evidence; use exact IDs and current timestamps; name every destructive action in approval; never send newsletters; and never edit published bodies.
 
-### v0.5.0 client release gate (2026-08-02)
+### v0.5.0 client release gate (passed 2026-08-02)
 
 - Automated MCP SDK tests must discover all 23 normal tools, all nine read-only tools, and invoke both zero-argument prompts without performing a write.
 - Disposable Ghost 5 and Ghost 6 integration tests, the package checks, audit, and package dry-run must pass.

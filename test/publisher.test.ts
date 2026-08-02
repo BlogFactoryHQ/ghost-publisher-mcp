@@ -11,6 +11,7 @@ const baseConfig: Config = {
   ghostUrl: 'https://ghost.example.com',
   ghostAdminApiKey: key,
   ghostApiVersion: 'v5.0',
+  permissionProfile: 'publisher',
   readOnly: false,
   uploadRoots: [],
 };
@@ -27,6 +28,10 @@ function post(overrides: Record<string, unknown> = {}) {
     status: 'draft',
     updated_at: '2026-01-01T00:00:00.000Z',
     tags: [],
+    authors: [],
+    html: '<p>Body</p>',
+    lexical:
+      '{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"extended-text","text":"Body"}]}]}}',
     ...overrides,
   };
 }
@@ -39,6 +44,9 @@ function page(overrides: Record<string, unknown> = {}) {
     status: 'draft',
     updated_at: '2026-01-01T00:00:00.000Z',
     url: 'https://ghost.example.com/about/',
+    html: '<p>Body</p>',
+    lexical:
+      '{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"extended-text","text":"Body"}]}]}}',
     ...overrides,
   };
 }
@@ -138,60 +146,182 @@ describe('publishing service', () => {
     expect(String(add.mock.calls[0]?.[0]?.html)).toContain('&lt;script&gt;');
   });
 
-  it('requires explicit confirmation before replacing a draft body', async () => {
-    const read = vi.fn(async () => post());
-    const edit = vi.fn(async (data) => post(data));
-    const publisher = new GhostPublisher(baseConfig, { ghost: { posts: { read, edit } } });
-    const target = { id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' };
+  it('previews exact metadata scopes without writing and applies only the signed change set', async () => {
+    let current = post();
+    const edit = vi.fn(async (data: Record<string, unknown>) => {
+      current = post({ ...current, ...data, updated_at: '2026-01-02T00:00:00.000Z' });
+      return current;
+    });
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async () => current), edit } },
+    });
+    const changes = [
+      {
+        target: { type: 'post' as const, id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
+        operation: { type: 'update_fields' as const, patch: { meta_title: 'Safer title' } },
+      },
+    ];
 
-    await expect(publisher.updateDraft({ ...target, markdown: '# Replacement' })).rejects.toThrow(
-      'body_replacement_confirmed=true',
-    );
-    expect(read).not.toHaveBeenCalled();
+    const preview = await publisher.previewChanges(changes);
     expect(edit).not.toHaveBeenCalled();
+    expect(preview.changes[0]).toMatchObject({
+      changed_fields: ['meta_title'],
+      required_scopes: ['metadata'],
+      can_apply: true,
+    });
 
-    await publisher.updateDraft({ ...target, markdown: '# Replacement', body_replacement_confirmed: true });
-    expect(edit.mock.calls[0]?.[0]).toMatchObject({ html: '<h1>Replacement</h1>\n' });
+    const result = await publisher.applyChangeSet(changes, preview.preview_hash, { metadata: true });
+    expect(edit).toHaveBeenCalledWith(expect.objectContaining({ meta_title: 'Safer title' }), { save_revision: true });
+    expect(result.succeeded[0]).toMatchObject({
+      before_snapshot: expect.objectContaining({ lexical: post().lexical }),
+      revision_requested: true,
+      ghost_readback: true,
+    });
   });
 
-  it('keeps metadata-only draft updates compatible without body confirmation', async () => {
-    const edit = vi.fn(async (data) => post(data));
+  it('rejects tampered hashes, extra scopes, and protected rich-card body replacement', async () => {
+    const edit = vi.fn();
+    const rich = post({
+      lexical:
+        '{"root":{"type":"root","children":[{"type":"image","src":"https://example.com/image.jpg"}]}}',
+    });
     const publisher = new GhostPublisher(baseConfig, {
-      ghost: { posts: { read: vi.fn(async () => post()), edit } },
+      ghost: { posts: { read: vi.fn(async () => rich), edit } },
     });
+    const metadata = [
+      {
+        target: { type: 'post' as const, id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
+        operation: { type: 'update_fields' as const, patch: { meta_title: 'New' } },
+      },
+    ];
+    const metadataPreview = await publisher.previewChanges(metadata);
+    await expect(publisher.applyChangeSet(metadata, `${metadataPreview.preview_hash}x`, { metadata: true })).rejects.toThrow(
+      'Preview hash does not match',
+    );
+    await expect(
+      publisher.applyChangeSet(metadata, metadataPreview.preview_hash, { metadata: true, title: true }),
+    ).rejects.toThrow('Approved scopes must exactly match');
 
-    await publisher.updateDraft({
-      id: 'a'.repeat(24),
-      updated_at: '2026-01-01T00:00:00.000Z',
-      excerpt: 'Metadata only',
-    });
-
-    expect(edit.mock.calls[0]?.[0]).toMatchObject({ custom_excerpt: 'Metadata only' });
+    const body = [
+      {
+        target: metadata[0]!.target,
+        operation: { type: 'replace_body' as const, markdown: '# Replacement' },
+      },
+    ];
+    const bodyPreview = await publisher.previewChanges(body);
+    expect(bodyPreview.changes[0]).toMatchObject({ can_apply: false, protected_nodes: ['image'] });
+    await expect(publisher.applyChangeSet(body, bodyPreview.preview_hash, { body: true })).rejects.toThrow(
+      'cannot be applied',
+    );
+    expect(edit).not.toHaveBeenCalled();
   });
 
-  it('preserves ordered author IDs and clears nullable draft metadata and tags', async () => {
-    const edit = vi.fn(async (data) => post(data));
+  it('allows a signed plain draft body replacement and saves a revision', async () => {
+    let current = post();
+    const edit = vi.fn(async (data: Record<string, unknown>) => {
+      current = post({ ...current, ...data, updated_at: '2026-01-02T00:00:00.000Z' });
+      return current;
+    });
     const publisher = new GhostPublisher(baseConfig, {
-      ghost: { posts: { read: vi.fn(async () => post()), edit } },
+      ghost: { posts: { read: vi.fn(async () => current), edit } },
     });
+    const changes = [
+      {
+        target: { type: 'post' as const, id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
+        operation: { type: 'replace_body' as const, markdown: '# Replacement' },
+      },
+    ];
+    const preview = await publisher.previewChanges(changes);
+    const result = await publisher.applyChangeSet(changes, preview.preview_hash, { body: true });
 
-    await publisher.updateDraft({
-      id: 'a'.repeat(24),
-      updated_at: '2026-01-01T00:00:00.000Z',
-      authors: ['b'.repeat(24), 'c'.repeat(24)],
-      tags: [],
-      excerpt: null,
-      feature_image_url: null,
-      meta_description: null,
+    expect(edit).toHaveBeenCalledWith(expect.objectContaining({ html: '<h1>Replacement</h1>\n' }), {
+      source: 'html',
+      save_revision: true,
     });
+    expect(result.succeeded).toHaveLength(1);
+  });
 
-    expect(edit.mock.calls[0]?.[0]).toMatchObject({
-      authors: [{ id: 'b'.repeat(24) }, { id: 'c'.repeat(24) }],
-      tags: [],
-      custom_excerpt: null,
-      feature_image: null,
-      meta_description: null,
+  it('requires separate scopes for every protected field class', async () => {
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async () => post()), edit: vi.fn() } },
     });
+    const preview = await publisher.previewChanges([
+      {
+        target: { type: 'post', id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
+        operation: {
+          type: 'update_fields',
+          patch: {
+            title: 'New title',
+            slug: 'new-slug',
+            tags: ['News'],
+            feature_image_url: 'https://ghost.example.com/image.jpg',
+            meta_title: 'Metadata',
+          },
+        },
+      },
+    ]);
+
+    expect(preview.changes[0]?.required_scopes).toEqual([
+      'feature_image',
+      'metadata',
+      'slug',
+      'taxonomy',
+      'title',
+    ]);
+  });
+
+  it('binds preview hashes to the Ghost site and aborts a stale 20-item batch before writing', async () => {
+    let stale = false;
+    const edit = vi.fn();
+    const read = vi.fn(async ({ id }: { id: string }) =>
+      post({ id, updated_at: stale && id === 'f'.repeat(24) ? '2026-01-02T00:00:00.000Z' : post().updated_at }),
+    );
+    const publisher = new GhostPublisher(baseConfig, { ghost: { posts: { read, edit } } });
+    const changes = Array.from({ length: 20 }, (_, index) => {
+      const id = index.toString(16).padStart(24, index === 15 ? 'f' : '0');
+      return {
+        target: { type: 'post' as const, id, updated_at: post().updated_at },
+        operation: { type: 'update_fields' as const, patch: { meta_title: `Title ${index}` } },
+      };
+    });
+    const preview = await publisher.previewChanges(changes);
+    const otherSite = new GhostPublisher(
+      { ...baseConfig, ghostUrl: 'https://other.example.com' },
+      { ghost: { posts: { read, edit } } },
+    );
+    await expect(otherSite.applyChangeSet(changes, preview.preview_hash, { metadata: true })).rejects.toThrow(
+      'Preview hash does not match',
+    );
+
+    stale = true;
+    await expect(publisher.applyChangeSet(changes, preview.preview_hash, { metadata: true })).rejects.toThrow(
+      'changed since it was read',
+    );
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  it('enforces permission profiles inside the publishing service', async () => {
+    const ghost = { posts: { read: vi.fn(async () => post()), edit: vi.fn(), add: vi.fn() } };
+    const readOnly = new GhostPublisher(
+      { ...baseConfig, permissionProfile: 'read-only', readOnly: true },
+      { ghost },
+    );
+    const draftEditor = new GhostPublisher(
+      { ...baseConfig, permissionProfile: 'draft-editor' },
+      { ghost },
+    );
+
+    await expect(readOnly.createDrafts([{ title: 'No', markdown: 'No' }])).rejects.toThrow('read-only');
+    await expect(
+      draftEditor.schedulePosts([
+        { id: post().id, updated_at: post().updated_at, published_at: '2099-01-01T00:00:00.000Z' },
+      ]),
+    ).rejects.toThrow('scheduler permission profile');
+    await expect(draftEditor.transitionPosts([{ id: post().id, updated_at: post().updated_at }], 'published')).rejects.toThrow(
+      'publisher permission profile',
+    );
+    expect(ghost.posts.edit).not.toHaveBeenCalled();
+    expect(ghost.posts.add).not.toHaveBeenCalled();
   });
 
   it('aborts a whole transition when preflight finds a stale post', async () => {
@@ -219,105 +349,6 @@ describe('publishing service', () => {
     expect(result.failed).toHaveLength(2);
   });
 
-  it('updates published metadata without changing status or triggering deployment', async () => {
-    const request = vi.fn();
-    const edit = vi.fn(async (...args: [Record<string, unknown>, Record<string, unknown>?]) =>
-      post({ ...args[0], status: 'published' }),
-    );
-    const ghost = {
-      posts: {
-        read: vi.fn(async () => post({ status: 'published' })),
-        edit,
-      },
-    };
-    const publisher = new GhostPublisher(
-      { ...baseConfig, deployHookUrl: 'https://deploy.example.com/hook' },
-      { ghost, fetch: request },
-    );
-
-    const updated = await publisher.updatePublishedPost({
-      id: 'a'.repeat(24),
-      updated_at: '2026-01-01T00:00:00.000Z',
-      meta_description: null,
-      feature_image_url: null,
-    });
-
-    expect(updated.status).toBe('published');
-    expect(edit.mock.calls[0]?.[0]).not.toHaveProperty('status');
-    expect(edit.mock.calls[0]?.[0]).not.toHaveProperty('html');
-    expect(edit.mock.calls[0]?.[0]).toMatchObject({ meta_description: null });
-    expect(edit.mock.calls[0]?.[0]).toMatchObject({ feature_image: null });
-    expect(edit.mock.calls[0]?.[1]).toEqual({ save_revision: true });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it.each(['draft', 'scheduled', 'sent', 'unknown'])('refuses published updates for %s posts', async (status) => {
-    const edit = vi.fn();
-    const publisher = new GhostPublisher(baseConfig, {
-      ghost: { posts: { read: vi.fn(async () => post({ status })), edit } },
-    });
-
-    await expect(
-      publisher.updatePublishedPost({
-        id: 'a'.repeat(24),
-        updated_at: '2026-01-01T00:00:00.000Z',
-        meta_title: 'New title',
-      }),
-    ).rejects.toThrow('only accepts published posts');
-    expect(edit).not.toHaveBeenCalled();
-  });
-
-  it('refuses stale published updates', async () => {
-    const edit = vi.fn();
-    const publisher = new GhostPublisher(baseConfig, {
-      ghost: { posts: { read: vi.fn(async () => post({ status: 'published', updated_at: 'newer' })), edit } },
-    });
-
-    await expect(
-      publisher.updatePublishedPost({ id: 'a'.repeat(24), updated_at: 'older', meta_title: 'New title' }),
-    ).rejects.toThrow('Post changed since it was read');
-    expect(edit).not.toHaveBeenCalled();
-  });
-
-  it('allows metadata changes regardless of body format because the body is never sent', async () => {
-    const edit = vi.fn(async (...args: [Record<string, unknown>, Record<string, unknown>?]) =>
-      post({ ...args[0], status: 'published' }),
-    );
-    const publisher = new GhostPublisher(baseConfig, {
-      ghost: {
-        posts: {
-          read: vi.fn(async () => post({ status: 'published', lexical: '{malformed rich content' })),
-          edit,
-        },
-      },
-    });
-
-    await publisher.updatePublishedPost({
-      id: 'a'.repeat(24),
-      updated_at: '2026-01-01T00:00:00.000Z',
-      meta_title: 'Safe metadata',
-    });
-
-    expect(edit.mock.calls[0]?.[0]).toMatchObject({ meta_title: 'Safe metadata' });
-    expect(edit.mock.calls[0]?.[1]).toEqual({ save_revision: true });
-  });
-
-  it('rejects body fields at the service boundary before reading or writing Ghost', async () => {
-    const read = vi.fn();
-    const edit = vi.fn();
-    const publisher = new GhostPublisher(baseConfig, { ghost: { posts: { read, edit } } });
-
-    await expect(
-      publisher.updatePublishedPost({
-        id: 'a'.repeat(24),
-        updated_at: '2026-01-01T00:00:00.000Z',
-        meta_title: 'Allowed field beside a forbidden one',
-        markdown: 'Forbidden body',
-      } as Parameters<typeof publisher.updatePublishedPost>[0]),
-    ).rejects.toThrow('bodies are read-only');
-    expect(read).not.toHaveBeenCalled();
-    expect(edit).not.toHaveBeenCalled();
-  });
 
   it('rejects duplicate transition targets before calling Ghost', async () => {
     const read = vi.fn();
@@ -551,48 +582,21 @@ describe('publishing service', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  it('guards page body replacement and saves published page metadata as a revision', async () => {
-    const readDraft = vi.fn(async () => page());
-    const editDraft = vi.fn(async (...args: [Record<string, unknown>, Record<string, unknown>?]) =>
-      page(args[0]),
-    );
-    const draftPublisher = new GhostPublisher(baseConfig, {
-      ghost: { pages: { read: readDraft, edit: editDraft } },
+  it('rejects post-only fields in a page change preview', async () => {
+    const edit = vi.fn();
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { pages: { read: vi.fn(async () => page()), edit } },
     });
-    const input = { id: 'd'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z', markdown: '# New' };
-
-    await expect(draftPublisher.updatePageDraft(input)).rejects.toThrow('body_replacement_confirmed=true');
-    expect(readDraft).not.toHaveBeenCalled();
-    await draftPublisher.updatePageDraft({ ...input, body_replacement_confirmed: true });
-    expect(editDraft.mock.calls[0]?.[0]).toMatchObject({ html: '<h1>New</h1>\n' });
-    expect(editDraft.mock.calls[0]?.[1]).toEqual({ source: 'html' });
-
-    const request = vi.fn();
-    const editPublished = vi.fn(async (...args: [Record<string, unknown>, Record<string, unknown>?]) =>
-      page({ ...args[0], status: 'published' }),
-    );
-    const publishedPublisher = new GhostPublisher(
-      { ...baseConfig, deployHookUrl: 'https://deploy.example.com/hook' },
+    const preview = await publisher.previewChanges([
       {
-        ghost: {
-          pages: {
-            read: vi.fn(async () => page({ status: 'published' })),
-            edit: editPublished,
-          },
-        },
-        fetch: request,
+        target: { type: 'page', id: 'd'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
+        operation: { type: 'update_fields', patch: { tags: ['Not allowed'] } },
       },
-    );
-    await publishedPublisher.updatePublishedPage({
-      id: 'd'.repeat(24),
-      updated_at: '2026-01-01T00:00:00.000Z',
-      meta_description: null,
-      feature_image_url: null,
-    });
-    expect(editPublished.mock.calls[0]?.[0]).not.toHaveProperty('status');
-    expect(editPublished.mock.calls[0]?.[0]).not.toHaveProperty('html');
-    expect(editPublished.mock.calls[0]?.[1]).toEqual({ save_revision: true });
-    expect(request).not.toHaveBeenCalled();
+    ]);
+
+    expect(preview.changes[0]).toMatchObject({ can_apply: false });
+    expect(preview.changes[0]?.warnings.join(' ')).toContain('Pages do not accept');
+    expect(edit).not.toHaveBeenCalled();
   });
 
   it('preflights page batches and deploys exactly once only after complete success', async () => {

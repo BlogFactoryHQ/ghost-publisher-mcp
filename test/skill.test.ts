@@ -14,6 +14,9 @@ describe('ghost-seo-optimizer skill', () => {
     expect(skill).toContain('confirm the target location and language');
     expect(skill).toContain('Before calling credit-consuming `run_site_audit`, `get_keyword_metrics`, or `get_serp_results`');
     expect(skill).toContain('user_confirmed: true');
+    expect(skill).toContain('`preview_changes`');
+    expect(skill).toContain('`apply_change_set`');
+    expect(skill).toContain('complete before snapshot');
     expect(skill).toContain('deployment host reported by `check_connection`');
     expect(agent).toContain('$ghost-seo-optimizer');
   });

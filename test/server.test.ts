@@ -12,6 +12,7 @@ const config: Config = {
   ghostUrl: 'https://ghost.example.com',
   ghostAdminApiKey: `${'a'.repeat(24)}:${'b'.repeat(64)}`,
   ghostApiVersion: 'v5.0',
+  permissionProfile: 'publisher',
   readOnly: false,
   uploadRoots: [],
 };
@@ -42,7 +43,7 @@ describe('MCP contract', () => {
     const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
     const registryMetadata = JSON.parse(await readFile(new URL('../server.json', import.meta.url), 'utf8'));
     const publisher = new GhostPublisher(
-      { ...config, readOnly: true },
+      { ...config, permissionProfile: 'read-only', readOnly: true },
       { ghost: { site: { read: async () => ({}) } } },
     );
     const { client, server } = await connect(publisher);
@@ -55,7 +56,7 @@ describe('MCP contract', () => {
     await server.close();
   });
 
-  it('advertises twenty-three normal tools, requires literal destructive confirmation, and redacts errors', async () => {
+  it('advertises the publisher profile, requires literal destructive confirmation, and redacts errors', async () => {
     const edit = vi.fn(async () => {
       throw new Error(`Ghost rejected ${config.ghostAdminApiKey}`);
     });
@@ -77,12 +78,10 @@ describe('MCP contract', () => {
         'list_authors',
         'list_pages',
         'get_page',
+        'preview_changes',
         'create_drafts',
         'create_page_drafts',
-        'update_draft',
-        'update_page_draft',
-        'update_published_post',
-        'update_published_page',
+        'apply_change_set',
         'upload_image',
         'publish_posts',
         'unpublish_posts',
@@ -98,16 +97,15 @@ describe('MCP contract', () => {
     expect(tools.tools.map((tool) => tool.name)).not.toContain('generate_image');
     expect(tools.tools.map((tool) => tool.name)).toContain('publish_posts');
     expect(tools.tools.map((tool) => tool.name)).toContain('publish_pages');
-    expect(tools.tools.find((tool) => tool.name === 'update_published_post')?.annotations).toMatchObject({
+    expect(tools.tools.find((tool) => tool.name === 'apply_change_set')?.annotations).toMatchObject({
       destructiveHint: true,
     });
     for (const name of [
-      'update_published_post',
+      'apply_change_set',
       'publish_posts',
       'unpublish_posts',
       'schedule_posts',
       'unschedule_posts',
-      'update_published_page',
       'publish_pages',
       'unpublish_pages',
       'trigger_deploy',
@@ -116,9 +114,10 @@ describe('MCP contract', () => {
       expect(schema).toContain('user_confirmed');
       expect(schema).toContain('true');
     }
-    const updateSchema = tools.tools.find((tool) => tool.name === 'update_published_post')?.inputSchema;
-    expect(JSON.stringify(updateSchema)).not.toContain('markdown');
-    expect(JSON.stringify(updateSchema)).not.toContain('slug');
+    const applySchema = tools.tools.find((tool) => tool.name === 'apply_change_set')?.inputSchema;
+    expect(JSON.stringify(applySchema)).toContain('preview_hash');
+    expect(JSON.stringify(applySchema)).toContain('scopes');
+    expect(tools.tools.map((tool) => tool.name)).not.toContain('update_draft');
     const pageCreateSchema = tools.tools.find((tool) => tool.name === 'create_page_drafts')?.inputSchema;
     expect(JSON.stringify(pageCreateSchema)).not.toContain('tags');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('authors');
@@ -127,7 +126,7 @@ describe('MCP contract', () => {
     const result = await client.callTool({ name: 'check_connection', arguments: {} });
     expect(result.structuredContent).toMatchObject({
       site: { title: 'Test Ghost' },
-      configuration: { read_only: false, deploy_hook_configured: false },
+      configuration: { permission_profile: 'publisher', read_only: false, deploy_hook_configured: false },
     });
 
     const loaded = await client.callTool({ name: 'get_post', arguments: { id_or_slug: 'published-post' } });
@@ -144,13 +143,19 @@ describe('MCP contract', () => {
       },
     });
 
+    const change = {
+      target: { type: 'post', id, updated_at: updatedAt },
+      operation: { type: 'update_fields', patch: { meta_title: 'Valid patch with a simulated Ghost failure' } },
+    };
+    const preview = await client.callTool({ name: 'preview_changes', arguments: { changes: [change] } });
+    const previewHash = (preview.structuredContent as { preview_hash: string }).preview_hash;
     for (const user_confirmed of [undefined, false, 'true']) {
       const rejected = await client.callTool({
-        name: 'update_published_post',
+        name: 'apply_change_set',
         arguments: {
-          id,
-          updated_at: updatedAt,
-          patch: { meta_title: 'Must not be applied' },
+          changes: [change],
+          preview_hash: previewHash,
+          scopes: { metadata: true },
           ...(user_confirmed === undefined ? {} : { user_confirmed }),
         },
       });
@@ -158,31 +163,19 @@ describe('MCP contract', () => {
     }
     expect(edit).not.toHaveBeenCalled();
 
-    const rejectedBody = await client.callTool({
-      name: 'update_published_post',
-      arguments: {
-        id,
-        updated_at: updatedAt,
-        patch: { markdown: 'Body replacement is outside V1', meta_title: 'Must not be partially applied' },
-        user_confirmed: true,
-      },
-    });
-    expect(rejectedBody.isError).toBe(true);
-    expect(edit).not.toHaveBeenCalled();
-
     const failedUpdate = await client.callTool({
-      name: 'update_published_post',
+      name: 'apply_change_set',
       arguments: {
-        id,
-        updated_at: updatedAt,
-        patch: { meta_title: 'Valid patch with a simulated Ghost failure' },
+        changes: [change],
+        preview_hash: previewHash,
+        scopes: { metadata: true },
         user_confirmed: true,
       },
     });
     expect(failedUpdate.isError).toBe(true);
     expect(edit).toHaveBeenCalledOnce();
-    expect(JSON.stringify(failedUpdate.content)).toContain('[REDACTED]');
-    expect(JSON.stringify(failedUpdate.content)).not.toContain(config.ghostAdminApiKey);
+    expect(JSON.stringify(failedUpdate.structuredContent)).toContain('[REDACTED]');
+    expect(JSON.stringify(failedUpdate)).not.toContain(config.ghostAdminApiKey);
 
     const publishAccepted = await client.callTool({
       name: 'publish_posts',
@@ -217,9 +210,9 @@ describe('MCP contract', () => {
     await server.close();
   });
 
-  it('advertises exactly nine tools in read-only mode', async () => {
+  it('advertises exactly ten tools in read-only mode', async () => {
     const publisher = new GhostPublisher(
-      { ...config, readOnly: true },
+      { ...config, permissionProfile: 'read-only', readOnly: true },
       { ghost: { site: { read: async () => ({}) }, posts: {}, tags: {} } },
     );
     const { client, server } = await connect(publisher);
@@ -235,12 +228,47 @@ describe('MCP contract', () => {
         'check_live_posts',
         'list_pages',
         'get_page',
+        'preview_changes',
         'check_live_pages',
       ].sort(),
     );
 
     expect(client.getServerCapabilities()?.prompts).toBeUndefined();
 
+    await client.close();
+    await server.close();
+  });
+
+  it.each([
+    [
+      'draft-editor',
+      ['apply_change_set', 'create_drafts', 'create_page_drafts', 'upload_image'],
+    ],
+    [
+      'scheduler',
+      ['apply_change_set', 'create_drafts', 'create_page_drafts', 'schedule_posts', 'unschedule_posts', 'upload_image'],
+    ],
+  ] as const)('enforces the exact %s capability surface', async (permissionProfile, writes) => {
+    const publisher = new GhostPublisher(
+      { ...config, permissionProfile },
+      { ghost: { site: { read: async () => ({}) } } },
+    );
+    const { client, server } = await connect(publisher);
+    const tools = await client.listTools();
+    const always = [
+      'check_connection',
+      'list_posts',
+      'get_post',
+      'list_tags',
+      'list_authors',
+      'list_pages',
+      'get_page',
+      'preview_changes',
+      'check_live_posts',
+      'check_live_pages',
+    ];
+    expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...always, ...writes].sort());
+    expect(client.getServerCapabilities()?.prompts).toBeUndefined();
     await client.close();
     await server.close();
   });
@@ -273,15 +301,18 @@ describe('MCP contract', () => {
     expect(seoOptimize.messages[0]?.role).toBe('user');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('untrusted evidence');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Stop for explicit approval');
-    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Never patch Markdown, HTML, Lexical');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Never propose replace_body');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('read-only heuristic proposal');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('50-page audit without Lighthouse');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('at most 10 queries');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('at most three ambiguous SERPs');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('Never call save_keywords');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('canonical host or path change');
-    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('authors, featured, status');
-    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('HTML and Lexical body are unchanged');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('tags, authors, featured, status');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('preview_changes');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('apply_change_set');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('before snapshot');
+    expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('captured HTML and Lexical body');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('live_check_configured: true');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('trigger_deploy exactly once');
 
@@ -300,8 +331,17 @@ describe('MCP contract', () => {
     const { client, server } = await connect(publisher);
     const calls = [
       {
-        name: 'update_published_post',
-        arguments: { id, updated_at: updatedAt, patch: { meta_title: 'No write' } },
+        name: 'apply_change_set',
+        arguments: {
+          changes: [
+            {
+              target: { type: 'post', id, updated_at: updatedAt },
+              operation: { type: 'update_fields', patch: { meta_title: 'No write' } },
+            },
+          ],
+          preview_hash: 'a'.repeat(43),
+          scopes: { metadata: true },
+        },
       },
       { name: 'publish_posts', arguments: { posts: [{ id, updated_at: updatedAt }] } },
       { name: 'unpublish_posts', arguments: { posts: [{ id, updated_at: updatedAt }] } },
@@ -310,10 +350,6 @@ describe('MCP contract', () => {
         arguments: { posts: [{ id, updated_at: updatedAt, published_at: '2099-01-01T00:00:00.000Z' }] },
       },
       { name: 'unschedule_posts', arguments: { posts: [{ id, updated_at: updatedAt }] } },
-      {
-        name: 'update_published_page',
-        arguments: { id, updated_at: updatedAt, patch: { meta_title: 'No write' } },
-      },
       { name: 'publish_pages', arguments: { pages: [{ id, updated_at: updatedAt }] } },
       { name: 'unpublish_pages', arguments: { pages: [{ id, updated_at: updatedAt }] } },
       { name: 'trigger_deploy', arguments: {} },
@@ -337,32 +373,7 @@ describe('MCP contract', () => {
     await server.close();
   });
 
-  it('guards Markdown draft replacement at the MCP boundary but keeps metadata patches compatible', async () => {
-    const read = vi.fn(async () => post('draft'));
-    const edit = vi.fn(async (input: Record<string, unknown>) => ({ ...post('draft'), ...input }));
-    const publisher = new GhostPublisher(config, { ghost: { posts: { read, edit } } });
-    const { client, server } = await connect(publisher);
-
-    const rejected = await client.callTool({
-      name: 'update_draft',
-      arguments: { id, updated_at: updatedAt, patch: { markdown: '# Replacement' } },
-    });
-    expect(rejected.isError).toBe(true);
-    expect(read).not.toHaveBeenCalled();
-    expect(edit).not.toHaveBeenCalled();
-
-    const metadata = await client.callTool({
-      name: 'update_draft',
-      arguments: { id, updated_at: updatedAt, patch: { excerpt: 'Metadata only' } },
-    });
-    expect(metadata.isError).not.toBe(true);
-    expect(edit).toHaveBeenCalledOnce();
-
-    await client.close();
-    await server.close();
-  });
-
-  it('guards page body replacement and rejects caller-provided live URLs before network access', async () => {
+  it('rejects caller-provided live URLs before network access', async () => {
     const read = vi.fn(async () => ({ ...post('draft'), tags: undefined }));
     const edit = vi.fn(async (input: Record<string, unknown>) => ({ ...post('draft'), ...input }));
     const request = vi.fn();
@@ -372,10 +383,6 @@ describe('MCP contract', () => {
     });
     const { client, server } = await connect(publisher);
 
-    const rejectedBody = await client.callTool({
-      name: 'update_page_draft',
-      arguments: { id, updated_at: updatedAt, patch: { markdown: '# Replacement' } },
-    });
     const rejectedUrl = await client.callTool({
       name: 'check_live_pages',
       arguments: {
@@ -383,7 +390,6 @@ describe('MCP contract', () => {
       },
     });
 
-    expect(rejectedBody.isError).toBe(true);
     expect(rejectedUrl.isError).toBe(true);
     expect(JSON.stringify(rejectedUrl.content)).toContain('Invalid arguments');
     expect(read).not.toHaveBeenCalled();

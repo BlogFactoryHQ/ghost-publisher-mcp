@@ -54,7 +54,9 @@ describe('setup CLI', () => {
         'cursor',
         '--read-only',
       ]),
-    ).toMatchObject({ clients: ['codex', 'cursor'], readOnly: true });
+    ).toMatchObject({ clients: ['codex', 'cursor'], permissionProfile: 'read-only' });
+    expect(parseSetupOptions(['--permission', 'scheduler'])).toMatchObject({ permissionProfile: 'scheduler' });
+    expect(() => parseSetupOptions(['--permission', 'scheduler', '--read-only'])).toThrow('cannot be used together');
     expect(() => parseSetupOptions(['--client', 'other'])).toThrow('Unsupported setup client');
     expect(() => parseSetupOptions(['--key', key])).toThrow('Unknown option');
   });
@@ -75,15 +77,15 @@ describe('setup CLI', () => {
     );
   });
 
-  it('pins the exact package version and adds read-only only when requested', () => {
-    expect(setupEntry('/usr/bin/npx', '0.2.1', 'https://example.com', key, false)).toEqual({
+  it('pins the exact package version and adds a bounded permission profile only when requested', () => {
+    expect(setupEntry('/usr/bin/npx', '0.2.1', 'https://example.com', key, 'publisher')).toEqual({
       command: '/usr/bin/npx',
       args: ['-y', 'ghost-publisher-mcp@0.2.1'],
       env: { GHOST_URL: 'https://example.com', GHOST_ADMIN_API_KEY: key },
     });
-    expect(setupEntry('/usr/bin/npx', '0.2.1', 'https://example.com', key, true).env).toHaveProperty(
-      'GHOST_READ_ONLY',
-      'true',
+    expect(setupEntry('/usr/bin/npx', '0.2.1', 'https://example.com', key, 'scheduler').env).toHaveProperty(
+      'GHOST_PERMISSION_PROFILE',
+      'scheduler',
     );
   });
 

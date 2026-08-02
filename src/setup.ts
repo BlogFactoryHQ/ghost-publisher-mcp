@@ -18,7 +18,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { loadConfig } from './config.js';
+import { loadConfig, type PermissionProfile } from './config.js';
 import { GhostPublisher } from './publisher.js';
 
 export type SetupClient = 'codex' | 'cursor' | 'claude-desktop';
@@ -150,6 +150,7 @@ export function parseSetupOptions(args: string[]) {
     options: {
       url: { type: 'string' },
       client: { type: 'string', multiple: true },
+      permission: { type: 'string' },
       'read-only': { type: 'boolean', default: false },
       'key-env': { type: 'string' },
       replace: { type: 'boolean', default: false },
@@ -158,6 +159,13 @@ export function parseSetupOptions(args: string[]) {
       yes: { type: 'boolean', default: false },
     },
   });
+  if (values.permission && values['read-only']) {
+    throw new Error('--permission and --read-only cannot be used together');
+  }
+  const permissionProfile = values.permission ?? (values['read-only'] ? 'read-only' : 'publisher');
+  if (!['read-only', 'draft-editor', 'scheduler', 'publisher'].includes(permissionProfile)) {
+    throw new Error('--permission must be read-only, draft-editor, scheduler, or publisher');
+  }
   const clients = (values.client ?? []).map((client) => {
     if (!CLIENTS.has(client as SetupClient)) throw new Error(`Unsupported setup client: ${client}`);
     return client as SetupClient;
@@ -166,7 +174,7 @@ export function parseSetupOptions(args: string[]) {
   return {
     url: values.url,
     clients,
-    readOnly: values['read-only'] ?? false,
+    permissionProfile: permissionProfile as PermissionProfile,
     keyEnv: values['key-env'],
     replace: values.replace ?? false,
     skipConnectionCheck: values['skip-connection-check'] ?? false,
@@ -188,7 +196,7 @@ export function setupEntry(
   version: string,
   ghostUrl: string,
   key: string,
-  readOnly: boolean,
+  permissionProfile: PermissionProfile,
 ): SetupEntry {
   return {
     command,
@@ -196,7 +204,7 @@ export function setupEntry(
     env: {
       GHOST_URL: ghostUrl,
       GHOST_ADMIN_API_KEY: key,
-      ...(readOnly ? { GHOST_READ_ONLY: 'true' } : {}),
+      ...(permissionProfile !== 'publisher' ? { GHOST_PERMISSION_PROFILE: permissionProfile } : {}),
     },
   };
 }
@@ -429,7 +437,9 @@ export async function runSetup(args: string[], dependencies: SetupDependencies =
     const config = loadConfig({
       GHOST_URL: url,
       GHOST_ADMIN_API_KEY: key,
-      ...(options.readOnly ? { GHOST_READ_ONLY: 'true' } : {}),
+      ...(options.permissionProfile !== 'publisher'
+        ? { GHOST_PERMISSION_PROFILE: options.permissionProfile }
+        : {}),
     });
     const clients = options.clients.length ? options.clients : await detectClients(platform, env, run);
     if (!clients.length) throw new Error('No supported clients detected; pass one or more --client options');
@@ -440,7 +450,7 @@ export async function runSetup(args: string[], dependencies: SetupDependencies =
     const npx = executable(platform === 'win32' ? 'npx.cmd' : 'npx', platform, run);
     if (!npx) throw new Error('npx is required and could not be resolved');
     const version = await packageVersion();
-    const desired = setupEntry(npx, version, config.ghostUrl, key, config.readOnly);
+    const desired = setupEntry(npx, version, config.ghostUrl, key, config.permissionProfile);
     const codex = clients.includes('codex') ? await codexExecutable(platform, env, run) : undefined;
     if (clients.includes('codex') && !codex) {
       throw new Error('Codex CLI or the Codex desktop app is required to configure Codex');
@@ -462,7 +472,7 @@ export async function runSetup(args: string[], dependencies: SetupDependencies =
       ...(currentCodex === 'conflict' ? ['codex' as const] : []),
     ];
 
-    output.write(`Ghost: ${config.ghostUrl}\nClients: ${clients.join(', ')}\nMode: ${config.readOnly ? 'read-only' : 'editorial'}\nKey: [REDACTED]\n`);
+    output.write(`Ghost: ${config.ghostUrl}\nClients: ${clients.join(', ')}\nMode: ${config.permissionProfile}\nKey: [REDACTED]\n`);
     if (conflicts.length) output.write(`Existing entries differ: ${conflicts.join(', ')}\n`);
     if (options.dryRun) {
       output.write('Dry run complete; no configuration changed.\n');
