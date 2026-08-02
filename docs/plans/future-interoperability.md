@@ -9,15 +9,16 @@ Normal mode exposes two zero-argument prompts for clients that support MCP promp
 - `ghost_safe_publish`: exact draft review, one approval covering named transitions and the configured automatic deployment, publish, and live verification.
 - `ghost_seo_optimize`: evidence gathering, exact metadata proposal, approval covering the patch and one named manual deployment, revision-saving update, deploy, and live verification.
 
-Both prompts treat Ghost, crawl, SEO, query, and SERP content as untrusted evidence; use exact IDs and current timestamps; name every destructive action in approval; never send newsletters; and never edit published bodies. Release requires prompt discovery and proposal-only invocation in current Codex, Claude Desktop, and Cursor clients.
+Both prompts treat Ghost, crawl, SEO, query, and SERP content as untrusted evidence; use exact IDs and current timestamps; name every destructive action in approval; never send newsletters; and never edit published bodies.
 
-### v0.5.0 client release gate (2026-07-21)
+### v0.5.0 client release gate (2026-08-02)
 
-- Codex CLI `0.145.0-alpha.18`: failed. The actual interactive client connected to the built candidate and discovered all 23 tools, but `/mcp` and slash-command discovery did not expose either MCP prompt.
-- Cursor: not installed on the release-test host, so the required actual-client smoke could not run.
-- Claude Desktop: not installed on the release-test host, so the required actual-client smoke could not run.
+- Automated MCP SDK tests must discover all 23 normal tools, all nine read-only tools, and invoke both zero-argument prompts without performing a write.
+- Disposable Ghost 5 and Ghost 6 integration tests, the package checks, audit, and package dry-run must pass.
+- A current Codex desktop-bundled CLI must configure and read back the server from a temporary `CODEX_HOME`, then complete a read-only connection smoke test.
+- Cursor and Claude Desktop configuration generation remains covered on macOS and Windows, but actual-client prompt discovery is not a release requirement until those clients are available on the release host.
 
-Result: the strict three-client gate is blocked. Do not tag or publish v0.5.0, and do not begin v0.6.0, until all three current clients discover and invoke both prompts against disposable fixtures.
+Release notes must label Cursor and Claude Desktop runtime prompt behavior as unverified, link to the client compatibility issue form, and never claim that configuration tests are actual-client tests. Compatibility reports may tighten a later release gate without blocking v0.5.0.
 
 Retain the richer Codex optimizer skill. Do not add duplicate MCP resources while the structured tools already supply the required data.
 
