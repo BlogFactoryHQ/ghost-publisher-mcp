@@ -82,7 +82,10 @@ export type ChangeFieldPatch = Omit<Partial<DraftInput>, 'markdown'>;
 
 export type ChangeOperation =
   | { type: 'update_fields'; patch: ChangeFieldPatch }
-  | { type: 'replace_body'; markdown: string };
+  | { type: 'replace_body'; markdown: string }
+  | { type: 'append_section'; markdown: string }
+  | { type: 'prepend_section'; markdown: string }
+  | { type: 'replace_exact_text'; find: string; replace: string };
 
 export type ChangeRequest = {
   target: ChangeTarget;
@@ -107,6 +110,8 @@ export type ChangePreviewItem = {
   required_scopes: ChangeScope[];
   characters: { before: number; after: number };
   lexical_nodes: Record<string, number>;
+  after_lexical_nodes: Record<string, number>;
+  removed_nodes: string[];
   protected_nodes: string[];
   warnings: string[];
   can_apply: boolean;

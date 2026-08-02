@@ -79,6 +79,8 @@ describe('MCP contract', () => {
         'list_pages',
         'get_page',
         'preview_changes',
+        'audit_content',
+        'plan_schedule',
         'create_drafts',
         'create_page_drafts',
         'apply_change_set',
@@ -117,6 +119,11 @@ describe('MCP contract', () => {
     const applySchema = tools.tools.find((tool) => tool.name === 'apply_change_set')?.inputSchema;
     expect(JSON.stringify(applySchema)).toContain('preview_hash');
     expect(JSON.stringify(applySchema)).toContain('scopes');
+    expect(JSON.stringify(applySchema)).toContain('append_section');
+    expect(JSON.stringify(applySchema)).toContain('replace_exact_text');
+    expect(JSON.stringify(tools.tools.find((tool) => tool.name === 'schedule_posts')?.inputSchema)).toContain(
+      'plan_hash',
+    );
     expect(tools.tools.map((tool) => tool.name)).not.toContain('update_draft');
     const pageCreateSchema = tools.tools.find((tool) => tool.name === 'create_page_drafts')?.inputSchema;
     expect(JSON.stringify(pageCreateSchema)).not.toContain('tags');
@@ -175,6 +182,16 @@ describe('MCP contract', () => {
     expect(failedUpdate.isError).toBe(true);
     expect(edit).toHaveBeenCalledOnce();
     expect(JSON.stringify(failedUpdate.structuredContent)).toContain('[REDACTED]');
+    expect(failedUpdate.structuredContent).toMatchObject({
+      failed: [
+        expect.objectContaining({
+          status: 'failed',
+          write_attempted: true,
+          revision_requested: true,
+          before_snapshot: expect.objectContaining({ id }),
+        }),
+      ],
+    });
     expect(JSON.stringify(failedUpdate)).not.toContain(config.ghostAdminApiKey);
 
     const publishAccepted = await client.callTool({
@@ -196,6 +213,7 @@ describe('MCP contract', () => {
       name: 'schedule_posts',
       arguments: {
         posts: [{ id, updated_at: updatedAt, published_at: '2099-01-01T00:00:00.000Z' }],
+        plan_hash: 'a'.repeat(43),
         user_confirmed: true,
       },
     });
@@ -210,7 +228,7 @@ describe('MCP contract', () => {
     await server.close();
   });
 
-  it('advertises exactly ten tools in read-only mode', async () => {
+  it('advertises exactly twelve tools in read-only mode', async () => {
     const publisher = new GhostPublisher(
       { ...config, permissionProfile: 'read-only', readOnly: true },
       { ghost: { site: { read: async () => ({}) }, posts: {}, tags: {} } },
@@ -229,6 +247,8 @@ describe('MCP contract', () => {
         'list_pages',
         'get_page',
         'preview_changes',
+        'audit_content',
+        'plan_schedule',
         'check_live_pages',
       ].sort(),
     );
@@ -264,11 +284,44 @@ describe('MCP contract', () => {
       'list_pages',
       'get_page',
       'preview_changes',
+      'audit_content',
+      'plan_schedule',
       'check_live_posts',
       'check_live_pages',
     ];
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...always, ...writes].sort());
     expect(client.getServerCapabilities()?.prompts).toBeUndefined();
+    await client.close();
+    await server.close();
+  });
+
+  it('exposes proposal-only mechanical audit and timezone schedule planning', async () => {
+    const edit = vi.fn();
+    const publisher = new GhostPublisher(
+      { ...config, permissionProfile: 'read-only', readOnly: true },
+      { ghost: { posts: { read: vi.fn(async () => post('draft')), edit } } },
+    );
+    const { client, server } = await connect(publisher);
+    const target = { type: 'post', id, updated_at: updatedAt };
+
+    const audit = await client.callTool({ name: 'audit_content', arguments: { targets: [target] } });
+    expect(audit.isError).not.toBe(true);
+    expect(JSON.stringify(audit.structuredContent)).not.toMatch(/quality|truth|score/i);
+    const plan = await client.callTool({
+      name: 'plan_schedule',
+      arguments: {
+        posts: [{ id, updated_at: updatedAt }],
+        start_local: '2026-08-03T10:00:00',
+        timezone: 'Europe/Istanbul',
+        interval_hours: 24,
+      },
+    });
+    expect(plan.structuredContent).toMatchObject({
+      newsletter: false,
+      headless_visibility: 'unverified',
+      posts: [{ local_time: '2026-08-03T10:00:00', published_at: '2026-08-03T07:00:00Z' }],
+    });
+    expect(edit).not.toHaveBeenCalled();
     await client.close();
     await server.close();
   });
@@ -347,7 +400,10 @@ describe('MCP contract', () => {
       { name: 'unpublish_posts', arguments: { posts: [{ id, updated_at: updatedAt }] } },
       {
         name: 'schedule_posts',
-        arguments: { posts: [{ id, updated_at: updatedAt, published_at: '2099-01-01T00:00:00.000Z' }] },
+        arguments: {
+          posts: [{ id, updated_at: updatedAt, published_at: '2099-01-01T00:00:00.000Z' }],
+          plan_hash: 'a'.repeat(43),
+        },
       },
       { name: 'unschedule_posts', arguments: { posts: [{ id, updated_at: updatedAt }] } },
       { name: 'publish_pages', arguments: { pages: [{ id, updated_at: updatedAt }] } },

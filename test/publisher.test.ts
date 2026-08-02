@@ -183,7 +183,7 @@ describe('publishing service', () => {
     const edit = vi.fn();
     const rich = post({
       lexical:
-        '{"root":{"type":"root","children":[{"type":"image","src":"https://example.com/image.jpg"}]}}',
+        '{"root":{"type":"root","children":[{"type":"image","src":"https://example.com/image.jpg"},{"type":"future-card"}]}}',
     });
     const publisher = new GhostPublisher(baseConfig, {
       ghost: { posts: { read: vi.fn(async () => rich), edit } },
@@ -209,7 +209,10 @@ describe('publishing service', () => {
       },
     ];
     const bodyPreview = await publisher.previewChanges(body);
-    expect(bodyPreview.changes[0]).toMatchObject({ can_apply: false, protected_nodes: ['image'] });
+    expect(bodyPreview.changes[0]).toMatchObject({
+      can_apply: false,
+      protected_nodes: ['future-card', 'image'],
+    });
     await expect(publisher.applyChangeSet(body, bodyPreview.preview_hash, { body: true })).rejects.toThrow(
       'cannot be applied',
     );
@@ -239,6 +242,185 @@ describe('publishing service', () => {
       save_revision: true,
     });
     expect(result.succeeded).toHaveLength(1);
+  });
+
+  it.each(['append_section', 'prepend_section'] as const)(
+    'adds one safe HTML card with %s while preserving every original rich child',
+    async (type) => {
+      const lexical = JSON.stringify({
+        root: {
+          type: 'root',
+          version: 1,
+          children: [
+            { type: 'image', version: 1, src: 'https://example.com/image.jpg' },
+            {
+              type: 'paragraph',
+              version: 1,
+              children: [{ type: 'extended-text', version: 1, text: 'Body', format: 1, style: '' }],
+            },
+          ],
+        },
+      });
+      let current = post({ lexical });
+      const edit = vi.fn(async (data: Record<string, unknown>) => {
+        current = post({ ...current, ...data, updated_at: '2026-01-02T00:00:00.000Z' });
+        return current;
+      });
+      const publisher = new GhostPublisher(baseConfig, {
+        ghost: { posts: { read: vi.fn(async () => current), edit } },
+      });
+      const changes = [
+        {
+          target: { type: 'post' as const, id: current.id, updated_at: current.updated_at },
+          operation: { type, markdown: '## Kaynaklar\n\n<script>blocked</script>' },
+        },
+      ];
+
+      const preview = await publisher.previewChanges(changes);
+      expect(preview.changes[0]).toMatchObject({
+        can_apply: true,
+        protected_nodes: ['image'],
+        removed_nodes: [],
+        required_scopes: ['body'],
+      });
+      const beforeChildren = JSON.parse(lexical).root.children;
+      const result = await publisher.applyChangeSet(changes, preview.preview_hash, { body: true });
+      const sentLexical = JSON.parse(String(edit.mock.calls[0]?.[0]?.lexical));
+      const preserved = type === 'append_section' ? sentLexical.root.children.slice(0, -1) : sentLexical.root.children.slice(1);
+      const htmlCard = type === 'append_section' ? sentLexical.root.children.at(-1) : sentLexical.root.children[0];
+      expect(preserved).toEqual(beforeChildren);
+      expect(htmlCard).toMatchObject({ type: 'html', version: 1 });
+      expect(htmlCard.html).toContain('&lt;script&gt;');
+      expect(result.succeeded).toHaveLength(1);
+    },
+  );
+
+  it('replaces one exact text node and preserves its format and style', async () => {
+    const lexical = JSON.stringify({
+      root: {
+        type: 'root',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ type: 'extended-text', text: 'Exact text', format: 5, style: 'color: red' }],
+          },
+        ],
+      },
+    });
+    let current = post({ lexical });
+    const edit = vi.fn(async (data: Record<string, unknown>) => {
+      current = post({ ...current, ...data, updated_at: '2026-01-02T00:00:00.000Z' });
+      return current;
+    });
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async () => current), edit } },
+    });
+    const changes = [
+      {
+        target: { type: 'post' as const, id: current.id, updated_at: current.updated_at },
+        operation: { type: 'replace_exact_text' as const, find: 'Exact text', replace: 'Safer text' },
+      },
+    ];
+    const preview = await publisher.previewChanges(changes);
+    const result = await publisher.applyChangeSet(changes, preview.preview_hash, { body: true });
+    const textNode = JSON.parse(String(edit.mock.calls[0]?.[0]?.lexical)).root.children[0].children[0];
+    expect(textNode).toEqual({ type: 'extended-text', text: 'Safer text', format: 5, style: 'color: red' });
+    expect(result.succeeded).toHaveLength(1);
+
+    const duplicateDocument = JSON.parse(lexical);
+    duplicateDocument.root.children[0].children.push({ type: 'extended-text', text: 'Exact text' });
+    const duplicate = post({ lexical: JSON.stringify(duplicateDocument) });
+    const blocked = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async () => duplicate), edit: vi.fn() } },
+    });
+    const blockedPreview = await blocked.previewChanges([
+      { ...changes[0]!, target: { ...changes[0]!.target, updated_at: duplicate.updated_at } },
+    ]);
+    expect(blockedPreview.changes[0]).toMatchObject({ can_apply: false });
+    expect(blockedPreview.changes[0]?.warnings.join(' ')).toContain('found 2');
+  });
+
+  it('audits mechanical signals without a quality or truth score', async () => {
+    const lexical = JSON.stringify({
+      root: {
+        type: 'root',
+        children: [
+          { type: 'extended-heading', tag: 'h2', children: [{ type: 'extended-text', text: 'Kaynaklar' }] },
+          {
+            type: 'extended-link',
+            url: 'https://example.com/source',
+            children: [{ type: 'extended-text', text: 'Source' }],
+          },
+        ],
+      },
+    });
+    const current = post({ lexical, feature_image: 'https://example.com/image.jpg', feature_image_alt: null });
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async () => current) } },
+    });
+    const result = await publisher.auditContent([
+      { type: 'post', id: current.id, updated_at: current.updated_at },
+    ]);
+
+    expect(result.audits[0]).toMatchObject({
+      lexical_parseable: true,
+      feature_image_missing_alt: true,
+      sources_section_found: true,
+      links_and_citations: [{ type: 'extended-link', url: 'https://example.com/source', text: 'Source' }],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/quality|truth|score/i);
+  });
+
+  it('plans Istanbul UTC timestamps and rejects ambiguous or missing local times', async () => {
+    const current = post();
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async () => current) } },
+    });
+    const targets = [
+      { id: current.id, updated_at: current.updated_at },
+      { id: 'b'.repeat(24), updated_at: current.updated_at },
+    ];
+    const plan = await publisher.planSchedule(targets, '2026-08-03T10:00:00', 'Europe/Istanbul', 24);
+    expect(plan).toMatchObject({
+      timezone: 'Europe/Istanbul',
+      interval_hours: 24,
+      newsletter: false,
+      headless_visibility: 'unverified',
+    });
+    expect(plan.posts.map((item) => item.published_at)).toEqual([
+      '2026-08-03T07:00:00Z',
+      '2026-08-04T07:00:00Z',
+    ]);
+    await expect(
+      publisher.planSchedule([targets[0]!], '2026-11-01T01:30:00', 'America/New_York', 24),
+    ).rejects.toThrow();
+    await expect(
+      publisher.planSchedule([targets[0]!], '2026-03-08T02:30:00', 'America/New_York', 24),
+    ).rejects.toThrow();
+    await expect(publisher.planSchedule([targets[0]!], '2026-08-03T10:00:00', 'Not/AZone', 24)).rejects.toThrow();
+  });
+
+  it('aborts a stale 20-post schedule with zero writes', async () => {
+    let stale = false;
+    const edit = vi.fn();
+    const read = vi.fn(async ({ id }: { id: string }) =>
+      post({ id, updated_at: stale && id === 'f'.repeat(24) ? '2026-01-02T00:00:00.000Z' : post().updated_at }),
+    );
+    const publisher = new GhostPublisher(baseConfig, { ghost: { posts: { read, edit } } });
+    const targets = Array.from({ length: 20 }, (_, index) => ({
+      id: index.toString(16).padStart(24, index === 15 ? 'f' : '0'),
+      updated_at: post().updated_at,
+    }));
+    const plan = await publisher.planSchedule(targets, '2099-01-01T10:00:00', 'Europe/Istanbul', 24);
+    stale = true;
+    const result = await publisher.schedulePosts(
+      plan.posts.map(({ id, updated_at, published_at }) => ({ id, updated_at, published_at })),
+      plan.plan_hash,
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toHaveLength(20);
+    expect(edit).not.toHaveBeenCalled();
   });
 
   it('requires separate scopes for every protected field class', async () => {
@@ -313,9 +495,10 @@ describe('publishing service', () => {
 
     await expect(readOnly.createDrafts([{ title: 'No', markdown: 'No' }])).rejects.toThrow('read-only');
     await expect(
-      draftEditor.schedulePosts([
-        { id: post().id, updated_at: post().updated_at, published_at: '2099-01-01T00:00:00.000Z' },
-      ]),
+      draftEditor.schedulePosts(
+        [{ id: post().id, updated_at: post().updated_at, published_at: '2099-01-01T00:00:00.000Z' }],
+        'not-used',
+      ),
     ).rejects.toThrow('scheduler permission profile');
     await expect(draftEditor.transitionPosts([{ id: post().id, updated_at: post().updated_at }], 'published')).rejects.toThrow(
       'publisher permission profile',
@@ -394,29 +577,40 @@ describe('publishing service', () => {
 
   it('schedules and unschedules exact posts without newsletters or deployment', async () => {
     const request = vi.fn();
-    const read = vi
-      .fn()
-      .mockResolvedValueOnce(post({ status: 'draft' }))
-      .mockResolvedValueOnce(post({ status: 'scheduled' }));
-    const edit = vi
-      .fn()
-      .mockImplementationOnce(async (data) => post({ ...data, status: 'scheduled' }))
-      .mockImplementationOnce(async (data) => post({ ...data, status: 'draft' }));
+    let current = post({ status: 'draft' });
+    const read = vi.fn(async () => current);
+    const edit = vi.fn(async (data) => {
+      current = post({ ...current, ...data });
+      return current;
+    });
     const publisher = new GhostPublisher(
       { ...baseConfig, deployHookUrl: 'https://deploy.example.com/hook' },
       { ghost: { posts: { read, edit } }, fetch: request },
     );
     const target = { id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' };
 
-    const scheduled = await publisher.schedulePosts([
-      { ...target, published_at: '2099-01-01T00:00:00.000Z' },
-    ]);
+    const plan = await publisher.planSchedule([target], '2099-01-01T00:00:00', 'UTC', 24);
+    await expect(
+      publisher.schedulePosts(
+        plan.posts.map(({ id, updated_at, published_at }) => ({ id, updated_at, published_at })),
+        `${plan.plan_hash}x`,
+      ),
+    ).rejects.toThrow('Schedule plan hash does not match');
+    expect(edit).not.toHaveBeenCalled();
+    const scheduled = await publisher.schedulePosts(
+      plan.posts.map(({ id, updated_at, published_at }) => ({ id, updated_at, published_at })),
+      plan.plan_hash,
+    );
     const unscheduled = await publisher.unschedulePosts([target]);
 
-    expect(scheduled.succeeded[0]).toMatchObject({ status: 'scheduled' });
+    expect(scheduled).toMatchObject({
+      succeeded: [expect.objectContaining({ status: 'scheduled' })],
+      newsletter: false,
+      headless_visibility: 'unverified',
+    });
     expect(unscheduled.succeeded[0]).toMatchObject({ status: 'draft' });
     expect(edit.mock.calls[0]).toEqual([
-      { ...target, published_at: '2099-01-01T00:00:00.000Z', status: 'scheduled' },
+      { ...target, published_at: '2099-01-01T00:00:00Z', status: 'scheduled' },
     ]);
     expect(edit.mock.calls[1]).toEqual([{ ...target, status: 'draft' }]);
     expect(JSON.stringify(edit.mock.calls)).not.toContain('newsletter');
@@ -430,9 +624,12 @@ describe('publishing service', () => {
     const target = { id: 'a'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' };
 
     await expect(
-      publisher.schedulePosts([{ ...target, published_at: '2020-01-01T00:00:00.000Z' }]),
+      publisher.schedulePosts([{ ...target, published_at: '2020-01-01T00:00:00.000Z' }], 'past'),
     ).rejects.toThrow('must be in the future');
-    const result = await publisher.schedulePosts([{ ...target, published_at: '2099-01-01T00:00:00.000Z' }]);
+    const result = await publisher.schedulePosts(
+      [{ ...target, published_at: '2099-01-01T00:00:00.000Z' }],
+      'invalid',
+    );
 
     expect(result.succeeded).toEqual([]);
     expect(result.failed).toHaveLength(1);

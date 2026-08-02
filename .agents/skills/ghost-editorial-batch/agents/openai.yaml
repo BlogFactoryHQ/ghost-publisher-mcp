@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ghost Editorial Batch"
+  short_description: "Safely audit, edit, and schedule Ghost drafts"
+  default_prompt: "Use $ghost-editorial-batch to audit exact Ghost drafts, preview scoped changes, obtain approval, apply with readback receipts, then separately plan and approve scheduling."

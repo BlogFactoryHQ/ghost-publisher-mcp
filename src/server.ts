@@ -143,6 +143,9 @@ const changeTargetSchema = z.object({
 const changeOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('update_fields'), patch: draftFieldPatchSchema }),
   z.object({ type: z.literal('replace_body'), markdown: z.string().min(1) }),
+  z.object({ type: z.literal('append_section'), markdown: z.string().min(1) }),
+  z.object({ type: z.literal('prepend_section'), markdown: z.string().min(1) }),
+  z.object({ type: z.literal('replace_exact_text'), find: z.string().min(1), replace: z.string() }),
 ]);
 const changeSchema = z.object({ target: changeTargetSchema, operation: changeOperationSchema });
 const changesSchema = z.array(changeSchema).min(1).max(25);
@@ -164,6 +167,8 @@ const changePreviewItemSchema = z.object({
   required_scopes: z.array(z.enum(['body', 'title', 'slug', 'taxonomy', 'feature_image', 'metadata'])),
   characters: z.object({ before: z.number(), after: z.number() }),
   lexical_nodes: z.record(z.string(), z.number()),
+  after_lexical_nodes: z.record(z.string(), z.number()),
+  removed_nodes: z.array(z.string()),
   protected_nodes: z.array(z.string()),
   warnings: z.array(z.string()),
   can_apply: z.boolean(),
@@ -240,6 +245,10 @@ const listPagesSchema = z
   });
 
 const scheduleTargetSchema = targetSchema.extend({ published_at: timestampSchema });
+const localDateTimeSchema = z.string().regex(
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/,
+  'Expected a local ISO date-time without an offset',
+);
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
@@ -284,7 +293,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
     { name: 'ghost-publisher-mcp', version: packageVersion },
     {
       instructions:
-        'Create post and page drafts first. Preview every content edit with exact id and updated_at values, show the full snapshot, impact, hash, and required scopes, then call apply_change_set only after explicit approval for that exact change. Rich-card body replacement is blocked. Publishing and scheduling require separate literal user confirmation; scheduling never sends newsletters or deploys.',
+        'Create post and page drafts first. Use audit_content only for mechanical signals. Preview every edit with exact revisions, show snapshots, node impact, hash, and scopes, then apply only after exact approval. Prefer append_section, prepend_section, or replace_exact_text over replacement; rich-card body replacement is blocked. Plan schedules in an IANA timezone, show local and UTC times, and obtain separate schedule approval. Scheduling never sends newsletters or deploys.',
     },
   );
   const fail = (error: unknown) => failure(error, publisher.config);
@@ -469,6 +478,74 @@ export function createServer(publisher: GhostPublisher): McpServer {
     },
   );
 
+  server.registerTool(
+    'audit_content',
+    {
+      title: 'Audit Ghost content mechanically',
+      description: 'Inspect up to 25 exact posts or Pages for parseability, Lexical/card inventory, missing alt text and metadata, lengths, links, and a Sources/Kaynaklar heading. It does not crawl, score quality, or judge sources.',
+      inputSchema: z.object({ targets: z.array(changeTargetSchema).min(1).max(25) }),
+      outputSchema: z.object({
+        audits: z.array(
+          z.object({
+            target: changeTargetSchema,
+            lexical_parseable: z.boolean(),
+            lexical_nodes: z.record(z.string(), z.number()),
+            protected_nodes: z.array(z.string()),
+            feature_image_missing_alt: z.boolean(),
+            missing_metadata_fields: z.array(z.string()),
+            lengths: z.object({ title: z.number(), meta_title: z.number(), meta_description: z.number() }),
+            links_and_citations: z.array(
+              z.object({ type: z.string(), url: z.string(), text: z.string().optional() }),
+            ),
+            sources_section_found: z.boolean(),
+          }),
+        ),
+      }),
+      annotations: readOnly,
+    },
+    async ({ targets }) => {
+      try {
+        const data = await publisher.auditContent(targets);
+        return success(data, `Audited ${data.audits.length} exact item(s); no content was written`);
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    'plan_schedule',
+    {
+      title: 'Plan an exact Ghost schedule',
+      description: 'Convert an ordered draft list and IANA local start time into exact UTC timestamps with an HMAC-bound plan. This tool never writes, emails, deploys, or claims headless visibility.',
+      inputSchema: z.object({
+        posts: z.array(targetSchema).min(1).max(25),
+        start_local: localDateTimeSchema,
+        timezone: z.string().min(1),
+        interval_hours: z.number().int().min(1).max(8760),
+      }),
+      outputSchema: z.object({
+        timezone: z.string(),
+        interval_hours: z.number(),
+        newsletter: z.literal(false),
+        headless_visibility: z.enum(['configured', 'unverified']),
+        posts: z.array(
+          scheduleTargetSchema.extend({ order: z.number(), local_time: z.string() }),
+        ),
+        plan_hash: z.string(),
+      }),
+      annotations: readOnly,
+    },
+    async ({ posts, start_local, timezone, interval_hours }) => {
+      try {
+        const data = await publisher.planSchedule(posts, start_local, timezone, interval_hours);
+        return success(data, `Planned ${data.posts.length} exact publication time(s); no content was written`);
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (canEditDraft(publisher.config)) {
     server.registerTool(
       'create_drafts',
@@ -521,7 +598,21 @@ export function createServer(publisher: GhostPublisher): McpServer {
         }),
         outputSchema: z.object({
           succeeded: z.array(changeReceiptSchema),
-          failed: z.array(z.object({ id: z.string(), error: z.string() })),
+          failed: z.array(
+            z.object({
+              target: changeTargetSchema,
+              before_snapshot: z.record(z.string(), z.unknown()),
+              before_hash: z.string(),
+              changed_fields: z.array(z.string()),
+              preserved_fields: z.array(z.string()),
+              approved_scopes: z.array(z.string()),
+              revision_requested: z.boolean(),
+              ghost_readback: z.boolean(),
+              status: z.enum(['failed', 'not_attempted']),
+              write_attempted: z.boolean(),
+              error: z.string(),
+            }),
+          ),
           partial_failure: z.boolean(),
         }),
         annotations: destructive,
@@ -617,15 +708,22 @@ export function createServer(publisher: GhostPublisher): McpServer {
           description: 'Schedule exact current drafts for future web publication. Requires user_confirmed=true and never sends newsletters or triggers deployment.',
           inputSchema: z.object({
             posts: z.array(scheduleTargetSchema).min(1).max(25),
+            plan_hash: z.string().min(20),
             user_confirmed: z.literal(true),
           }),
-          outputSchema: batchSchema,
+          outputSchema: batchSchema.extend({
+            newsletter: z.literal(false),
+            headless_visibility: z.enum(['configured', 'unverified']),
+          }),
           annotations: destructive,
         },
-        async ({ posts }) => {
+        async ({ posts, plan_hash }) => {
           try {
-            const data = await publisher.schedulePosts(posts);
-            return success(data, `${data.succeeded.length} scheduled, ${data.failed.length} failed`);
+            const data = await publisher.schedulePosts(posts, plan_hash);
+            return success(
+              data,
+              `${data.succeeded.length} scheduled, ${data.failed.length} failed; headless visibility ${data.headless_visibility}`,
+            );
           } catch (error) {
             return fail(error);
           }
