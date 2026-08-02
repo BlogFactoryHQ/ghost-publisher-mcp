@@ -1,0 +1,63 @@
+name: Client compatibility report
+description: Report setup, discovery, or invocation problems in an MCP client.
+title: "[client]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve client compatibility. Never paste a Ghost Admin API key, deploy-hook URL, token, or unredacted client configuration.
+  - type: input
+    id: server-version
+    attributes:
+      label: Ghost Publisher version
+      placeholder: 0.5.0
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options:
+        - Codex
+        - Cursor
+        - Claude Desktop
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: client-version
+    attributes:
+      label: Client version
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system and version
+    validations:
+      required: true
+  - type: dropdown
+    id: setup-method
+    attributes:
+      label: Setup method
+      options:
+        - One-command setup
+        - Manual JSON configuration
+        - Manual Codex configuration
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps and redacted output
+      description: Remove all keys, tokens, hook URLs, and private content before submitting.
+    validations:
+      required: true
+  - type: checkboxes
+    id: secret-check
+    attributes:
+      label: Secret check
+      options:
+        - label: I removed Ghost Admin keys, tokens, private URLs, and private content.
+          required: true

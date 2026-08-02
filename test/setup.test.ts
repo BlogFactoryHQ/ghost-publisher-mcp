@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   clientConfigPath,
+  detectClients,
   parseSetupOptions,
   runSetup,
   setupEntry,
@@ -84,6 +85,65 @@ describe('setup CLI', () => {
       'GHOST_READ_ONLY',
       'true',
     );
+  });
+
+  it('detects macOS apps and uses the Codex CLI bundled outside PATH', async () => {
+    const directory = await home();
+    const applications = path.join(directory, 'Applications');
+    const bundledCodex = path.join(applications, 'ChatGPT.app', 'Contents', 'Resources', 'codex');
+    await mkdir(path.dirname(bundledCodex), { recursive: true });
+    await writeFile(bundledCodex, '', { mode: 0o700 });
+    await mkdir(path.join(applications, 'Cursor.app'));
+    await mkdir(path.join(applications, 'Claude.app'));
+    const codexConfig = path.join(directory, '.codex', 'config.toml');
+    let added = false;
+    const bundledRun = (command: string, args: string[]) => {
+      if (command === 'which') {
+        if (args[0] === 'npx') return { status: 0, stdout: '/usr/local/bin/npx\n', stderr: '' };
+        return { status: 1, stdout: '', stderr: 'not found' };
+      }
+      if (command === bundledCodex && args.slice(0, 3).join(' ') === 'mcp get ghost-publisher') {
+        if (!added) return { status: 1, stdout: '', stderr: 'MCP server not found' };
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            command: '/usr/local/bin/npx',
+            args: ['-y', `ghost-publisher-mcp@${packageVersion}`],
+            env: { GHOST_URL: 'https://example.com', GHOST_ADMIN_API_KEY: key },
+          }),
+          stderr: '',
+        };
+      }
+      if (command === bundledCodex && args.slice(0, 3).join(' ') === 'mcp add ghost-publisher') {
+        const temporaryKey = args.find((arg) => arg.startsWith('GHOST_ADMIN_API_KEY='))?.split('=')[1];
+        mkdirSync(path.dirname(codexConfig), { recursive: true });
+        writeFileSync(codexConfig, `GHOST_ADMIN_API_KEY = "${temporaryKey}"\n`, { mode: 0o600 });
+        added = true;
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected command' };
+    };
+
+    await expect(detectClients('darwin', { HOME: directory }, bundledRun)).resolves.toEqual([
+      'codex',
+      'cursor',
+      'claude-desktop',
+    ]);
+    const io = streams();
+    await runSetup(
+      [
+        '--url',
+        'https://example.com',
+        '--client',
+        'codex',
+        '--key-env',
+        'TEST_GHOST_KEY',
+        '--skip-connection-check',
+        '--yes',
+      ],
+      { env: { HOME: directory, TEST_GHOST_KEY: key }, platform: 'darwin', run: bundledRun, ...io },
+    );
+    expect(await readFile(codexConfig, 'utf8')).toContain(key);
   });
 
   it('produces a redacted dry run without writing configuration', async () => {

@@ -108,6 +108,40 @@ function executable(name: string, platform: NodeJS.Platform, run: Runner): strin
     .find(Boolean);
 }
 
+function macApplicationPaths(name: string, env: NodeJS.ProcessEnv): string[] {
+  return [path.join(homeDirectory(env), 'Applications', `${name}.app`), path.join('/Applications', `${name}.app`)];
+}
+
+async function installedMacApplication(name: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  for (const application of macApplicationPaths(name, env)) {
+    if (await exists(application)) return true;
+  }
+  return false;
+}
+
+async function codexExecutable(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  run: Runner,
+): Promise<string | undefined> {
+  const command = executable('codex', platform, run);
+  if (command || platform !== 'darwin') return command;
+  for (const application of ['Codex', 'ChatGPT']) {
+    const bundled = macApplicationPaths(application, env).map((directory) =>
+      path.join(directory, 'Contents', 'Resources', 'codex'),
+    );
+    for (const candidate of bundled) {
+      try {
+        await access(candidate, constants.X_OK);
+        return candidate;
+      } catch {
+        // Try the next standard application location.
+      }
+    }
+  }
+  return undefined;
+}
+
 export function parseSetupOptions(args: string[]) {
   const { values } = parseArgs({
     args,
@@ -207,16 +241,17 @@ async function prompt(question: string, input: NodeJS.ReadStream, output: NodeJS
   }
 }
 
-async function detectClients(
+export async function detectClients(
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
   run: Runner,
 ): Promise<SetupClient[]> {
   const detected: SetupClient[] = [];
-  if (executable('codex', platform, run)) detected.push('codex');
+  if (await codexExecutable(platform, env, run)) detected.push('codex');
   if (
     executable('cursor', platform, run) ||
     executable('cursor-agent', platform, run) ||
+    (platform === 'darwin' && (await installedMacApplication('Cursor', env))) ||
     (await exists(path.dirname(clientConfigPath('cursor', platform, env))))
   ) {
     detected.push('cursor');
@@ -225,7 +260,7 @@ async function detectClients(
     const config = clientConfigPath('claude-desktop', platform, env);
     const appExists =
       platform === 'darwin'
-        ? await exists('/Applications/Claude.app')
+        ? await installedMacApplication('Claude', env)
         : Boolean(env.LOCALAPPDATA && (await exists(path.join(env.LOCALAPPDATA, 'Programs', 'Claude'))));
     if (appExists || (await exists(path.dirname(config)))) detected.push('claude-desktop');
   }
@@ -406,8 +441,10 @@ export async function runSetup(args: string[], dependencies: SetupDependencies =
     if (!npx) throw new Error('npx is required and could not be resolved');
     const version = await packageVersion();
     const desired = setupEntry(npx, version, config.ghostUrl, key, config.readOnly);
-    const codex = clients.includes('codex') ? executable('codex', platform, run) : undefined;
-    if (clients.includes('codex') && !codex) throw new Error('Codex CLI is required to configure Codex');
+    const codex = clients.includes('codex') ? await codexExecutable(platform, env, run) : undefined;
+    if (clients.includes('codex') && !codex) {
+      throw new Error('Codex CLI or the Codex desktop app is required to configure Codex');
+    }
     const codexHome = env.CODEX_HOME || path.join(homeDirectory(env), '.codex');
     const codexConfig = path.join(codexHome, 'config.toml');
     if (codex) await refuseSymlink(codexConfig, 'Codex');

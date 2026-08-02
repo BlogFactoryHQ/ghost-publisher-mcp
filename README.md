@@ -8,7 +8,9 @@ Ghost Publisher deliberately exposes 23 bounded editorial tools instead of mirro
 
 > This project is not affiliated with or endorsed by the Ghost Foundation.
 
-> Source release candidate: `0.5.0`. The latest published npm and official MCP Registry release remains `0.4.1` until cross-client prompt smoke tests pass.
+> Source release candidate: `0.5.0`. The latest published npm and official MCP Registry release remains `0.4.1` until the documented v0.5 release gates pass.
+
+The v0.5 release gate validates the server protocol, disposable Ghost 5/6 instances, and a current Codex client. Cursor and Claude Desktop configuration generation is automated, but their actual prompt-discovery behavior is not yet verified. Please use the client compatibility issue form for redacted reports and never include an Admin key.
 
 ## Requirements
 
@@ -26,7 +28,7 @@ Run this in a private terminal:
 npx -y ghost-publisher-mcp@latest setup --url https://your-ghost.example.com
 ```
 
-The installer prompts once for the Ghost Admin API key without echoing it, detects Codex, Cursor, and Claude Desktop, verifies the Ghost connection without writing content, shows a redacted plan, and asks before changing client configuration. Generated entries pin the exact package version that ran setup, preventing surprise upgrades.
+The installer prompts once for the Ghost Admin API key without echoing it, detects Codex, Cursor, and Claude Desktop, verifies the Ghost connection without writing content, shows a redacted plan, and asks before changing client configuration. On macOS it detects apps in the system or user Applications folder; if Codex is not on `PATH`, it automatically uses the CLI bundled with the Codex or ChatGPT desktop app. Generated entries pin the exact package version that ran setup, preventing surprise upgrades.
 
 For CI or automation, inject the key into an environment variable through the platform's secret manager rather than typing it into the command or passing it as an argument:
 
