@@ -15,7 +15,7 @@ Ghost Publisher exposes a bounded editorial surface instead of mirroring the ful
 
 > Current npm and official MCP Registry release: `0.8.0`, published on 2026-08-16.
 
-> v0.9 preview on `main` (not yet published): draft-only lists, quotes, code blocks, uploaded-image cards, bookmarks, and inline bold, italic, code, and links.
+> v0.9 preview on `main` (Ghost 5/6 verified, not yet published): draft-only lists, quotes, code blocks, uploaded-image cards, bookmarks, and inline bold, italic, code, and links.
 
 On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for redacted reports and never include an Admin key.
 

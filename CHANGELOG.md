@@ -5,6 +5,7 @@
 - Add draft-only native lists, quotes, code blocks, uploaded-image cards, and bookmarks to the existing post and Page creation tools.
 - Add inline bold, italic, code, and HTTP(S) links to native prose without adding a general API dispatcher or new tools.
 - Require image-card URLs to come from the existing safe `upload_image` flow in the current server session; bookmark cards never fetch external metadata.
+- Verify creation, readback, and preservation of every new node on disposable Ghost 5 and Ghost 6 instances.
 
 ## 0.8.0 (2026-08-16)
 
