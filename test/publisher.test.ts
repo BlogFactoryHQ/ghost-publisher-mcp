@@ -146,6 +146,57 @@ describe('publishing service', () => {
     expect(String(add.mock.calls[0]?.[0]?.html)).toContain('&lt;script&gt;');
   });
 
+  it('creates native structured drafts without the HTML conversion path', async () => {
+    const add = vi.fn(async (data) => post(data));
+    const ghost = {
+      posts: { read: vi.fn(async () => Promise.reject(new Error('404 Not Found'))), add },
+    };
+    const publisher = new GhostPublisher(baseConfig, { ghost });
+
+    const result = await publisher.createDrafts([
+      {
+        title: 'Native cards',
+        blocks: [
+          { type: 'heading', text: 'Native heading', level: 2 },
+          { type: 'paragraph', text: 'Editable prose' },
+          { type: 'callout', text: '**Safe** <script>alert(1)</script>', emoji: '✅', color: 'green' },
+          { type: 'button', text: 'Read more', url: 'https://ghost.org/docs', alignment: 'left' },
+        ],
+      },
+    ]);
+
+    expect(result.succeeded).toHaveLength(1);
+    expect(add.mock.calls[0]).toHaveLength(1);
+    const document = JSON.parse(String(add.mock.calls[0]?.[0]?.lexical));
+    expect(document.root.children).toMatchObject([
+      { type: 'extended-heading', tag: 'h2', children: [{ type: 'extended-text', text: 'Native heading' }] },
+      { type: 'paragraph', children: [{ type: 'extended-text', text: 'Editable prose' }] },
+      { type: 'callout', calloutEmoji: '✅', backgroundColor: 'green' },
+      { type: 'button', buttonText: 'Read more', buttonUrl: 'https://ghost.org/docs', alignment: 'left' },
+    ]);
+    expect(document.root.children[2].calloutText).toContain('<strong>Safe</strong>');
+    expect(document.root.children[2].calloutText).toContain('&lt;script&gt;');
+    expect(document.root.children[2].calloutText).not.toContain('<script>');
+  });
+
+  it('rejects missing, duplicate, or unsafe structured draft bodies before Ghost access', async () => {
+    const add = vi.fn();
+    const read = vi.fn();
+    const publisher = new GhostPublisher(baseConfig, { ghost: { posts: { read, add } } });
+
+    await expect(publisher.createDrafts([{ title: 'Missing' }])).rejects.toThrow('exactly one');
+    await expect(
+      publisher.createDrafts([{ title: 'Duplicate', markdown: 'Body', blocks: [{ type: 'paragraph', text: 'Body' }] }]),
+    ).rejects.toThrow('exactly one');
+    await expect(
+      publisher.createDrafts([
+        { title: 'Unsafe URL', blocks: [{ type: 'button', text: 'Run', url: 'javascript:alert(1)' }] },
+      ]),
+    ).rejects.toThrow('HTTP or HTTPS');
+    expect(read).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+  });
+
   it('previews exact metadata scopes without writing and applies only the signed change set', async () => {
     let current = post();
     const edit = vi.fn(async (data: Record<string, unknown>) => {
@@ -764,6 +815,9 @@ describe('publishing service', () => {
     const created = await publisher.createPageDrafts([
       { title: 'About', markdown: '# About', excerpt: 'Page excerpt' },
     ]);
+    await publisher.createPageDrafts([
+      { title: 'Native page', blocks: [{ type: 'callout', text: 'Page card' }] },
+    ]);
 
     expect(browse).toHaveBeenCalledWith({
       limit: 15,
@@ -775,6 +829,11 @@ describe('publishing service', () => {
     expect(listed.pages[0]).not.toHaveProperty('tags');
     expect(add.mock.calls[0]?.[0]).toMatchObject({ status: 'draft', html: '<h1>About</h1>\n' });
     expect(add.mock.calls[0]?.[1]).toEqual({ source: 'html' });
+    expect(add.mock.calls[1]).toHaveLength(1);
+    expect(JSON.parse(String(add.mock.calls[1]?.[0]?.lexical)).root.children[0]).toMatchObject({
+      type: 'callout',
+      calloutText: 'Page card',
+    });
     expect(created.succeeded[0]).not.toHaveProperty('authors');
     expect(remove).not.toHaveBeenCalled();
   });

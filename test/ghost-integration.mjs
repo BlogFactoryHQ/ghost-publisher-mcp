@@ -100,7 +100,12 @@ try {
     {
       title: 'Integration draft',
       slug,
-      markdown: '# It works',
+      blocks: [
+        { type: 'heading', text: 'It works', level: 2 },
+        { type: 'paragraph', text: 'Native structured prose' },
+        { type: 'callout', text: '**Ghost-native** callout', emoji: '✅', color: 'green' },
+        { type: 'button', text: 'Ghost docs', url: 'https://ghost.org/docs', alignment: 'left' },
+      ],
       authors: [owner.id],
       excerpt: 'Metadata to clear',
     },
@@ -140,6 +145,15 @@ try {
   assert.equal(draftDetails.custom_excerpt, null);
   assert.equal(draftDetails.feature_image, image.url);
   assert.deepEqual(draftDetails.authors.map((author) => author.id), [owner.id]);
+  const nativeChildren = JSON.parse(draftDetails.lexical).root.children;
+  assert.deepEqual(nativeChildren.map((node) => node.type), [
+    'extended-heading',
+    'paragraph',
+    'callout',
+    'button',
+  ]);
+  assert.equal(nativeChildren[2].backgroundColor, 'green');
+  assert.equal(nativeChildren[3].buttonUrl, 'https://ghost.org/docs');
 
   const originalChildren = JSON.parse(draftDetails.lexical).root.children;
   const sectionReceipt = await applyExact([

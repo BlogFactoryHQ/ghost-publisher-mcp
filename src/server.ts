@@ -90,10 +90,41 @@ const authorsSchema = z
 
 const nullableText = (max: number) => z.string().max(max).nullable();
 const nullableUrl = z.url().nullable();
+const httpUrl = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), 'Expected an HTTP(S) URL');
 
-const draftSchema = z.object({
+const draftBlockSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('paragraph'), text: z.string().min(1).max(10_000) }).strict(),
+  z.object({ type: z.literal('heading'), text: z.string().min(1).max(500), level: z.union([z.literal(2), z.literal(3)]).optional() }).strict(),
+  z.object({
+    type: z.literal('callout'),
+    text: z.string().min(1).max(10_000),
+    emoji: z.string().max(16).optional(),
+    color: z.enum(['white', 'grey', 'blue', 'green', 'yellow', 'red', 'pink', 'purple', 'accent']).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('button'),
+    text: z.string().min(1).max(200),
+    url: httpUrl,
+    alignment: z.enum(['left', 'center']).optional(),
+  }).strict(),
+]);
+
+const draftContentFields = {
+  markdown: z.string().min(1).optional(),
+  blocks: z.array(draftBlockSchema).min(1).max(100).optional(),
+};
+
+function requireOneDraftBody(
+  draft: { markdown?: string; blocks?: unknown[] },
+  context: z.RefinementCtx,
+) {
+  if ((draft.markdown === undefined) === (draft.blocks === undefined)) {
+    context.addIssue({ code: 'custom', message: 'Provide exactly one of markdown or blocks' });
+  }
+}
+
+const draftFieldsSchema = z.object({
   title: z.string().min(1).max(300),
-  markdown: z.string().min(1),
   slug: slugSchema.optional(),
   tags: z.array(z.string().min(1).max(191)).max(20).optional(),
   authors: authorsSchema.optional(),
@@ -113,8 +144,9 @@ const draftSchema = z.object({
   twitter_image: z.url().optional(),
 });
 
-const draftFieldPatchSchema = draftSchema
-  .omit({ markdown: true })
+const draftSchema = draftFieldsSchema.extend(draftContentFields).superRefine(requireOneDraftBody);
+
+const draftFieldPatchSchema = draftFieldsSchema
   .partial()
   .extend({
     excerpt: nullableText(500).optional(),
@@ -133,7 +165,11 @@ const draftFieldPatchSchema = draftSchema
   })
   .refine((patch) => Object.keys(patch).length > 0, { message: 'Provide at least one field to update' });
 
-const pageDraftSchema = draftSchema.omit({ tags: true, authors: true, featured: true }).strict();
+const pageDraftSchema = draftFieldsSchema
+  .omit({ tags: true, authors: true, featured: true })
+  .extend(draftContentFields)
+  .strict()
+  .superRefine(requireOneDraftBody);
 
 const changeTargetSchema = z.object({
   type: z.enum(['post', 'page']),
@@ -551,7 +587,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
       'create_drafts',
       {
         title: 'Create Ghost drafts',
-        description: 'Create 1–10 posts as drafts from Markdown. This tool cannot publish. Ordered tags preserve the primary tag.',
+        description: 'Create 1–10 posts as drafts from either Markdown or bounded native Ghost blocks. This tool cannot publish. Ordered tags preserve the primary tag.',
         inputSchema: z.object({ posts: z.array(draftSchema).min(1).max(10) }),
         outputSchema: batchSchema,
         annotations: write,
@@ -570,7 +606,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
       'create_page_drafts',
       {
         title: 'Create Ghost page drafts',
-        description: 'Create 1–10 Markdown pages and always force draft status. Tags, authors, templates, code injection, and scheduling are unavailable.',
+        description: 'Create 1–10 pages from either Markdown or bounded native Ghost blocks and always force draft status. Tags, authors, templates, code injection, and scheduling are unavailable.',
         inputSchema: z.object({ pages: z.array(pageDraftSchema).min(1).max(10) }),
         outputSchema: pageBatchSchema,
         annotations: write,

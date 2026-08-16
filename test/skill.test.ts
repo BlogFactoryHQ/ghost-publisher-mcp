@@ -34,6 +34,9 @@ describe('ghost-seo-optimizer skill', () => {
     expect(skill).toContain('Stop for separate schedule approval');
     expect(skill).toContain('`newsletter: false`');
     expect(skill).toContain('quality score');
+    expect(skill).toContain('Never assign low/medium/high risk from the subject alone');
+    expect(skill).toContain('If no source comparison was performed, say `not checked`');
+    expect(skill).toContain('objective schedule notes');
     expect(skill).not.toContain('Firecrawl');
     expect(agent).toContain('$ghost-editorial-batch');
   });

@@ -31,6 +31,8 @@ import type {
   ChangeScope,
   ContentSnapshot,
   DeployResult,
+  DraftBlock,
+  DraftFields,
   DraftInput,
   ImageAsset,
   PageInput,
@@ -169,33 +171,74 @@ function details<T extends PostRef | PageRef>(content: any, ref: T) {
   };
 }
 
-type GhostFieldInput = {
-  title?: string;
+type GhostFieldInput = Partial<DraftFields> & {
   markdown?: string;
-  slug?: string;
-  tags?: string[];
-  authors?: string[];
-  excerpt?: string | null;
-  featured?: boolean;
-  feature_image_url?: string | null;
-  feature_image_alt?: string | null;
-  feature_image_caption?: string | null;
-  meta_title?: string | null;
-  meta_description?: string | null;
-  canonical_url?: string | null;
-  og_title?: string | null;
-  og_description?: string | null;
-  og_image?: string | null;
-  twitter_title?: string | null;
-  twitter_description?: string | null;
-  twitter_image?: string | null;
+  blocks?: DraftBlock[];
 };
+
+function textNode(text: string) {
+  return { type: 'extended-text', version: 1, detail: 0, format: 0, mode: 'normal', style: '', text };
+}
+
+function proseNode(type: 'paragraph' | 'extended-heading', text: string, tag?: 'h2' | 'h3') {
+  return {
+    type,
+    version: 1,
+    direction: 'ltr',
+    format: '',
+    indent: 0,
+    ...(tag ? { tag } : {}),
+    children: [textNode(text)],
+  };
+}
+
+function blockUrl(value: string): string {
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Button URL must use HTTP or HTTPS');
+  return url.toString();
+}
+
+function draftLexical(blocks: DraftBlock[]): string {
+  // ponytail: structured prose is plain text; add inline formatting or RTL detection only after a real pilot needs it.
+  const children = blocks.map((block) => {
+    if (block.type === 'paragraph') return proseNode('paragraph', block.text);
+    if (block.type === 'heading') return proseNode('extended-heading', block.text, `h${block.level ?? 2}`);
+    if (block.type === 'callout') {
+      return {
+        type: 'callout',
+        version: 1,
+        calloutText: markdown.renderInline(block.text),
+        calloutEmoji: block.emoji ?? '💡',
+        backgroundColor: block.color ?? 'blue',
+      };
+    }
+    return {
+      type: 'button',
+      version: 1,
+      buttonText: block.text,
+      buttonUrl: blockUrl(block.url),
+      alignment: block.alignment ?? 'center',
+    };
+  });
+  return JSON.stringify({ root: { type: 'root', version: 1, direction: 'ltr', format: '', indent: 0, children } });
+}
+
+function validateDraftBodies(inputs: Array<{ markdown?: string; blocks?: DraftBlock[] }>): void {
+  if (inputs.some((input) => (input.markdown === undefined) === (input.blocks === undefined))) {
+    throw new Error('Every draft needs exactly one of markdown or blocks');
+  }
+  if (inputs.some((input) => input.blocks?.length === 0)) throw new Error('Draft blocks cannot be empty');
+  for (const input of inputs) {
+    if (input.blocks) draftLexical(input.blocks);
+  }
+}
 
 function ghostFields(input: GhostFieldInput): Record<string, unknown> {
   return {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.slug !== undefined ? { slug: input.slug } : {}),
     ...(input.markdown !== undefined ? { html: markdown.render(input.markdown) } : {}),
+    ...(input.blocks !== undefined ? { lexical: draftLexical(input.blocks) } : {}),
     ...(input.tags !== undefined ? { tags: input.tags.map((name) => ({ name })) } : {}),
     ...(input.authors !== undefined ? { authors: input.authors.map((id) => ({ id })) } : {}),
     ...(input.excerpt !== undefined ? { custom_excerpt: input.excerpt } : {}),
@@ -856,6 +899,7 @@ export class GhostPublisher {
 
   async createDrafts(inputs: DraftInput[]): Promise<BatchResult> {
     if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot create drafts');
+    validateDraftBodies(inputs);
     const prepared = inputs.map((input) => ({ ...input, slug: input.slug || slugify(input.title) }));
     if (prepared.some((input) => !input.slug)) throw new Error('Every draft needs a usable title or slug');
     if (new Set(prepared.map((input) => input.slug)).size !== prepared.length) {
@@ -871,7 +915,9 @@ export class GhostPublisher {
     const result: BatchResult = { succeeded: [], failed: [], partial_failure: false };
     for (const input of prepared) {
       try {
-        const created = await this.ghost.posts.add(ghostDraft(input), { source: 'html' });
+        const created = input.blocks
+          ? await this.ghost.posts.add(ghostDraft(input))
+          : await this.ghost.posts.add(ghostDraft(input), { source: 'html' });
         result.succeeded.push(postRef(created));
       } catch (error) {
         result.failed.push({ title: input.title, error: errorMessage(error, this.config) });
@@ -883,6 +929,7 @@ export class GhostPublisher {
 
   async createPageDrafts(inputs: PageInput[]): Promise<BatchResult<PageRef>> {
     if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot create drafts');
+    validateDraftBodies(inputs);
     const prepared = inputs.map((input) => ({ ...input, slug: input.slug || slugify(input.title) }));
     if (prepared.some((input) => !input.slug)) throw new Error('Every page needs a usable title or slug');
     if (new Set(prepared.map((input) => input.slug)).size !== prepared.length) {
@@ -897,7 +944,9 @@ export class GhostPublisher {
     const result: BatchResult<PageRef> = { succeeded: [], failed: [], partial_failure: false };
     for (const input of prepared) {
       try {
-        const created = await this.ghost.pages.add({ ...ghostFields(input), status: 'draft' }, { source: 'html' });
+        const created = input.blocks
+          ? await this.ghost.pages.add({ ...ghostFields(input), status: 'draft' })
+          : await this.ghost.pages.add({ ...ghostFields(input), status: 'draft' }, { source: 'html' });
         result.succeeded.push(pageRef(created));
       } catch (error) {
         result.failed.push({ title: input.title, error: errorMessage(error, this.config) });

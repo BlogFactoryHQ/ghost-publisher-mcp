@@ -46,9 +46,19 @@ export type ImageAsset = {
   source: 'upload';
 };
 
-export type DraftInput = {
+export type DraftBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'heading'; text: string; level?: 2 | 3 }
+  | {
+      type: 'callout';
+      text: string;
+      emoji?: string;
+      color?: 'white' | 'grey' | 'blue' | 'green' | 'yellow' | 'red' | 'pink' | 'purple' | 'accent';
+    }
+  | { type: 'button'; text: string; url: string; alignment?: 'left' | 'center' };
+
+export type DraftFields = {
   title: string;
-  markdown: string;
   slug?: string;
   tags?: string[];
   authors?: string[];
@@ -68,7 +78,12 @@ export type DraftInput = {
   twitter_image?: string | null;
 };
 
-export type PageInput = Omit<DraftInput, 'tags' | 'authors' | 'featured'>;
+export type DraftInput = DraftFields & { markdown?: string; blocks?: DraftBlock[] };
+
+export type PageInput = Omit<DraftFields, 'tags' | 'authors' | 'featured'> & {
+  markdown?: string;
+  blocks?: DraftBlock[];
+};
 
 export type ChangeScope = 'body' | 'title' | 'slug' | 'taxonomy' | 'feature_image' | 'metadata';
 
@@ -78,7 +93,7 @@ export type ChangeTarget = {
   updated_at: string;
 };
 
-export type ChangeFieldPatch = Omit<Partial<DraftInput>, 'markdown'>;
+export type ChangeFieldPatch = Partial<DraftFields>;
 
 export type ChangeOperation =
   | { type: 'update_fields'; patch: ChangeFieldPatch }

@@ -11,7 +11,7 @@ Use Ghost Publisher as the CMS safety boundary. The host AI may research, evalua
 
 1. Call `check_connection`. Confirm the permission profile and whether headless live checking is configured. Stop if the required write capability is absent.
 2. Resolve no more than 25 exact targets in the user-supplied order. Call `get_post` or `get_page` for every target and retain each ID plus `updated_at`.
-3. Call `audit_content`. Report only its mechanical signals; do not infer accuracy, quality, source reliability, or link health.
+3. Call `audit_content`. Report only its mechanical signals; do not infer accuracy, quality, source reliability, or link health. If the user asks about content or publication risk, use the reporting rules below.
 4. Prepare the smallest applicable change operation:
    - `update_fields` for metadata and named fields.
    - `append_section` or `prepend_section` to add a Markdown section while preserving existing Lexical children.
@@ -21,8 +21,20 @@ Use Ghost Publisher as the CMS safety boundary. The host AI may research, evalua
 6. Stop for explicit approval of the exact unchanged batch and exact scopes. Do not combine this with scheduling approval.
 7. Call `apply_change_set` once with the unchanged changes, preview hash, exact scopes, and `user_confirmed: true`. Do not retry a write automatically.
 8. Inspect every receipt and Ghost readback. Report succeeded, failed, and not-attempted targets, revision requests, preserved fields, and any partial completion. Keep the returned before snapshots available to the user; the MCP stores none. Recovery uses Ghost Admin revision history or a separately previewed reverse change-set.
-9. If scheduling is requested, call `plan_schedule` with the exact applied/read-back revisions, ordered posts, local start time, IANA timezone, and interval hours. Show local times, exact UTC timestamps, `newsletter: false`, headless visibility, and the plan hash.
+9. If scheduling is requested, call `plan_schedule` with the exact applied/read-back revisions, ordered posts, local start time, IANA timezone, and interval hours. Show local times, exact UTC timestamps, `newsletter: false`, headless visibility, and the plan hash. When publication cadence is in scope, use a bounded `list_posts` query to report existing scheduled posts around that window.
 10. Stop for separate schedule approval. Then call `schedule_posts` once with the unchanged posts, plan hash, and `user_confirmed: true`. Never add newsletter/email parameters or trigger deployment for scheduling.
+
+## Risk reporting
+
+Keep these categories separate:
+
+- **Blocker:** A concrete detected condition that prevents the requested action, such as a stale revision, wrong status, invalid or past time, missing approval, failed write/readback, or a stated spacing rule that the plan violates.
+- **Review note:** A concrete mechanical finding from `audit_content`, or a mismatch found by a source/fidelity review the user explicitly requested. If no source comparison was performed, say `not checked`; never convert that absence into a risk label.
+- **Schedule note:** Objective queue state such as nearby scheduled posts or unverified headless visibility. It is informational unless it violates an explicit user constraint.
+
+Never assign low/medium/high risk from the subject alone, including health, finance, politics, children, privacy, or a named company/person. Do not treat assertive wording, an RSS origin, or missing source research as proof of error. Provenance only supports a fidelity conclusion when the exact draft was actually compared with that source.
+
+When the user says to schedule only and not research sources, do not research or add source commentary. Report exact scheduled times, verified status, and only concrete blockers or objective schedule notes.
 
 ## Guardrails
 

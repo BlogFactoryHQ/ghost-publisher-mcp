@@ -6,7 +6,8 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 
 | Horizon | Milestone | Status | Plan |
 | --- | --- | --- | --- |
-| Current | v0.7.0 editorial workflow | Structure-safe editing, mechanical audit, IANA schedule planning, and packaged batch skill in release validation | [0.7 Editorial workflow](docs/plans/0.7-editorial-workflow.md) |
+| Shipped | v0.8.0 native rich-card drafts | Published and verified on npm and the MCP Registry on 2026-08-16 | [0.8 Adoption and rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md) |
+| Shipped | v0.7.0 editorial workflow | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.7 Editorial workflow](docs/plans/0.7-editorial-workflow.md) |
 | Shipped | v0.6.0 trust controls | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.6 Trust controls](docs/plans/0.6-trust-controls.md) |
 | Shipped | v0.5.0 setup and portable MCP prompts | Published and verified on npm and the MCP Registry on 2026-08-02 | [Future interoperability](docs/plans/future-interoperability.md) |
 | Shipped | v0.4.1 release correction | Corrected npm documentation and published-package MCP smoke coverage | [0.4 Pages](docs/plans/0.4-pages.md) |
@@ -16,7 +17,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 | Shipped | v0.4.0 safe Pages vertical | Published and verified on 2026-07-21 | [0.4 Pages](docs/plans/0.4-pages.md) |
 | Demand-gated | Broader interoperability | No committed release beyond portable prompts | [Future interoperability](docs/plans/future-interoperability.md) |
 
-The npm package and official MCP Registry serve `0.6.0`; source prepares v0.7.0 editorial workflows. Codex setup/readback was smoke-tested with a desktop-bundled CLI. Cursor and Claude configuration generation is automated, while actual-client behavior remains explicitly unverified.
+The npm package and official MCP Registry serve `0.8.0`. On 2026-08-16, ChatGPT desktop `26.810.41047` and bundled Codex CLI `0.148.0-alpha.9` passed discovery, redacted setup dry-run, and a read-only connection check against Ghost `6.42`. Cursor and Claude configuration targets were detected from local configuration directories, but current application runtimes were unavailable and remain unverified.
 
 ## Gap register
 
@@ -31,13 +32,15 @@ The npm package and official MCP Registry serve `0.6.0`; source prepares v0.7.0 
 | P1 | No scheduling or author assignment | Add bounded author and scheduling tools | Released in v0.4.0 |
 | P1 | Setup was client-specific and manual | Add one interactive local installer for Codex, Cursor, and Claude Desktop | Released in v0.4.0 |
 | P1 | Current client releases need ongoing smoke coverage | Last manual smoke: Codex CLI `0.145.0-alpha.18`, Cursor `3.12.17`, and Claude Desktop `1.22209.3` on 2026-07-21; repeat after client updates | Monitor |
-| P1 | Draft body updates can lose Ghost structure | Block rich-body replacement and permit only proven structure-safe Lexical operations | Replacement guard released in v0.6.0; bounded operations in v0.7.0 validation |
+| P1 | Draft body updates can lose Ghost structure | Block rich-body replacement and permit only proven structure-safe Lexical operations | Replacement guard released in v0.6.0; bounded operations released in v0.7.0 |
 | P2 | Patch semantics were incomplete | Add nullable draft fields and published feature-image replacement | Released in v0.4.0 |
 | P2 | Discovery was narrow | Add bounded author/date/order filters, not arbitrary NQL | Released in v0.4.0 |
 | P2 | Pages required Ghost Admin handoff | Add a separate guarded Pages workflow for Ghost-rendered and headless sites | Released in v0.4.0; monitor usage |
 | P0 | Generic update tools could bypass a visible diff | Replace them with HMAC-bound preview/apply and exact scopes | Released in v0.6.0 |
-| P1 | Adding a source section could destroy rich cards | Add one HTML-card node and prove original children survive Ghost 5/6 round trips | Implemented for v0.7.0; release validation pending |
-| P1 | Local schedule plans were not timezone-bound | Add proposal-only IANA conversion plus an HMAC-bound exact UTC plan | Implemented for v0.7.0; release validation pending |
+| P1 | Adding a source section could destroy rich cards | Add one HTML-card node and prove original children survive Ghost 5/6 round trips | Released in v0.7.0 |
+| P1 | Local schedule plans were not timezone-bound | Add proposal-only IANA conversion plus an HMAC-bound exact UTC plan | Released in v0.7.0 |
+| P1 | Release messaging can drift from npm/Registry state | Make release truth part of the patch-release checklist | Corrected after v0.7.0; automate only if drift recurs |
+| P1 | Current rich-card creation depends on HTML conversion or host-authored Lexical | Add bounded native blocks to the existing draft tools and prove Ghost 5/6 readback | Released in v0.8.0 |
 | P1 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Released in v0.5.0 |
 
 ## Delivery order
@@ -45,8 +48,11 @@ The npm package and official MCP Registry serve `0.6.0`; source prepares v0.7.0 
 1. v0.4.0 consolidated release and v0.4.1 documentation correction: complete.
 2. v0.5.0 balanced Codex/client configuration gate: complete.
 3. v0.6.0 trust controls: complete.
-4. Validate and publish v0.7.0 structure-safe editorial and scheduling workflows.
-5. Correct release defects with the next patch version; never overwrite published versions.
+4. v0.7.0 structure-safe editorial and scheduling workflows: complete.
+5. Release messaging correction and current Codex compatibility evidence: complete.
+6. Bounded native rich-card draft pilot with disposable Ghost 5/6: complete.
+7. v0.8.0 native rich-card drafts: complete; maintainer acceptance replaced the proposed non-maintainer demo gate.
+8. Correct release defects with the next patch version; never overwrite published versions.
 
 ## Non-goals
 

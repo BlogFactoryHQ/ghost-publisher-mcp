@@ -126,6 +126,7 @@ describe('MCP contract', () => {
     );
     expect(tools.tools.map((tool) => tool.name)).not.toContain('update_draft');
     const pageCreateSchema = tools.tools.find((tool) => tool.name === 'create_page_drafts')?.inputSchema;
+    expect(JSON.stringify(pageCreateSchema)).toContain('blocks');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('tags');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('authors');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('featured');
@@ -484,6 +485,43 @@ describe('MCP contract', () => {
     });
     expect(accepted.isError).not.toBe(true);
     expect(add.mock.calls[0]?.[0]).toMatchObject({ authors: [{ id: '1' }] });
+
+    await client.close();
+    await server.close();
+  });
+
+  it('requires exactly one safe body format for draft creation', async () => {
+    const add = vi.fn(async (input: Record<string, unknown>) => ({ ...post('draft'), ...input }));
+    const publisher = new GhostPublisher(config, {
+      ghost: {
+        posts: {
+          read: vi.fn(async () => Promise.reject(new Error('404 not found'))),
+          add,
+        },
+      },
+    });
+    const { client, server } = await connect(publisher);
+
+    for (const draft of [
+      { title: 'Missing' },
+      { title: 'Duplicate', markdown: 'Body', blocks: [{ type: 'paragraph', text: 'Body' }] },
+      { title: 'Unsafe', blocks: [{ type: 'button', text: 'Run', url: 'javascript:alert(1)' }] },
+    ]) {
+      const rejected = await client.callTool({ name: 'create_drafts', arguments: { posts: [draft] } });
+      expect(rejected.isError).toBe(true);
+      expect(JSON.stringify(rejected.content)).toContain('Invalid arguments');
+    }
+    expect(add).not.toHaveBeenCalled();
+
+    const accepted = await client.callTool({
+      name: 'create_drafts',
+      arguments: { posts: [{ title: 'Native', blocks: [{ type: 'callout', text: 'Safe card' }] }] },
+    });
+    expect(accepted.isError).not.toBe(true);
+    expect(JSON.parse(String(add.mock.calls[0]?.[0]?.lexical)).root.children[0]).toMatchObject({
+      type: 'callout',
+      calloutText: 'Safe card',
+    });
 
     await client.close();
     await server.close();

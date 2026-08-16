@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.5.0 (Unreleased)
+## 0.8.0 (2026-08-16)
+
+- Add draft-only native heading, paragraph, callout, and button blocks to the existing post and Page creation tools.
+- Validate structured input at the MCP boundary, sanitize callout Markdown, and require HTTP(S) button URLs.
+- Verify native Lexical readback and structure-preserving edits on disposable Ghost 5 and Ghost 6 instances.
+- Clarify mechanical, source-review, and schedule risk reporting in the packaged editorial skill.
+
+## 0.7.0 (2026-08-02)
+
+- Add structure-safe editorial changes, mechanical content audits, signed IANA schedule plans, and the packaged batch workflow.
+
+## 0.6.0 (2026-08-02)
+
+- Add permission profiles and signed preview/apply change sets with optimistic locking and readback receipts.
+
+## 0.5.0 (2026-08-02)
 
 - Add zero-argument `ghost_safe_publish` and `ghost_seo_optimize` MCP prompts for portable, approval-gated workflows.
 - Hide write-oriented prompts in read-only mode while preserving the existing 23 normal and 9 read-only tools.
