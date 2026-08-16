@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 (Unreleased)
+## 0.9.0 (2026-08-16)
 
 - Add draft-only native lists, quotes, code blocks, uploaded-image cards, and bookmarks to the existing post and Page creation tools.
 - Add inline bold, italic, code, and HTTP(S) links to native prose without adding a general API dispatcher or new tools.

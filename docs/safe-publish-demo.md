@@ -5,7 +5,7 @@ Use a disposable or explicitly authorized Ghost site. This walkthrough creates o
 ## 1. Install the release
 
 ```bash
-npx -y ghost-publisher-mcp@0.8.0 setup
+npx -y ghost-publisher-mcp@0.9.0 setup
 ```
 
 The setup command configures the selected local client with `GHOST_URL`, `GHOST_ADMIN_API_KEY`, and `GHOST_PERMISSION_PROFILE=publisher`. Configure a public post URL template when the site is headless. Restart the client and call `check_connection`.

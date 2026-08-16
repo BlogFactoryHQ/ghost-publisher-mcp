@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest released minor version, currently `0.8.x`.
+Security fixes are applied to the latest released minor version, currently `0.9.x`.
 
 ## Reporting a vulnerability
 
