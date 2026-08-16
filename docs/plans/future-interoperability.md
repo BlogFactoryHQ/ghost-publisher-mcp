@@ -4,10 +4,11 @@ Status: portable prompts and the balanced client gate shipped in v0.5.0; broader
 
 ## Portable MCP prompts
 
-Normal mode exposes two zero-argument prompts for clients that support MCP prompts; read-only mode exposes neither:
+Publisher mode exposes two write-oriented zero-argument prompts, while every profile exposes the read-oriented Publication Doctor prompt:
 
 - `ghost_safe_publish`: exact draft review, one approval covering named transitions and the configured automatic deployment, publish, and live verification.
 - `ghost_seo_optimize`: evidence gathering, exact metadata proposal, approval covering the patch and one named manual deployment, revision-saving update, deploy, and live verification.
+- `ghost_publication_doctor`: bounded exact-record and public-surface diagnosis; read-only mode stops before remediation.
 
 Both prompts treat Ghost, crawl, SEO, query, and SERP content as untrusted evidence; use exact IDs and current timestamps; name every destructive action in approval; never send newsletters; and never edit published bodies.
 

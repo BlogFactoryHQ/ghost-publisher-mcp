@@ -1,8 +1,8 @@
 {
   "name": "ghost-publisher-mcp",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "mcpName": "io.github.BoraGkc/ghost-publisher",
-  "description": "Local-first MCP server for safe Ghost posts, Pages, scheduling, images, and publishing.",
+  "description": "Local-first MCP server for safe Ghost authoring, publication diagnostics, scheduling, images, and publishing.",
   "type": "module",
   "bin": {
     "ghost-publisher-mcp": "dist/index.js"
@@ -60,6 +60,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.20.1",
     "eslint": "^9.39.2",
+    "playwright": "^1.55.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0",
     "vitest": "^4.1.10"

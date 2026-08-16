@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0 (2026-08-16)
+
+- Extend `audit_content` with stable findings for invalid or empty content, heading structure, Hangul-at-block-start review, image alt evidence, toggle and duplicate-gallery review, bookmark/button/link integrity, Sources headings, and metadata presence or length.
+- Add read-only `check_site_health` for separate Ghost and delivery homepages, sitemaps, up to five exact revision-bound posts/Pages, rendered titles and canonicals, static share prerequisites, Ghost 6 extension-bearing 404 evidence, and Ghost-returned feature images.
+- Add `ghost_publication_doctor` to every permission profile; read-only runs stop after diagnosis, while draft-safe remediation continues only through the existing signed preview, exact approval, scopes, and readback path.
+- Keep heuristics explicit: complex-script start, decorative-image intent, duplicate-gallery payloads, missing Sources headings, and metadata length ranges require human review and are not quality, accessibility, SEO, or Ghost-core repair claims.
+- Bound public diagnostics to server-derived URLs, GET without redirects or retries, 15-second timeouts, 2 MB bodies, 20 deduplicated requests, and four concurrent requests; no crawling or caller-selected network destination is added.
+- Gate release on disposable Ghost 5/6 diagnostics and Chromium, Firefox, and WebKit healthy/missing-Portal share fixtures.
+
 ## 0.9.0 (2026-08-16)
 
 - Add draft-only native lists, quotes, code blocks, uploaded-image cards, and bookmarks to the existing post and Page creation tools.

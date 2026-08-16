@@ -169,3 +169,73 @@ export type ChangePreview = {
   changes: ChangePreviewItem[];
   preview_hash: string;
 };
+
+export type DiagnosticCertainty = 'confirmed' | 'heuristic';
+export type DiagnosticSeverity = 'blocker' | 'warning' | 'info';
+
+export const AUDIT_FINDING_CODES = [
+  'CONTENT_LEXICAL_INVALID',
+  'CONTENT_EMPTY_BODY',
+  'HEADING_LEVEL_SKIP',
+  'HEADING_EMPTY',
+  'EDITOR_COMPLEX_SCRIPT_START',
+  'IMAGE_ALT_MISSING',
+  'IMAGE_ALT_EMPTY_DECORATIVE',
+  'CARD_TOGGLE_A11Y_REVIEW',
+  'CARD_GALLERY_DUPLICATE_PAYLOAD',
+  'BOOKMARK_METADATA_INCOMPLETE',
+  'BUTTON_LABEL_EMPTY',
+  'LINK_URL_INVALID',
+  'LINK_TEXT_EMPTY',
+  'SOURCES_SECTION_MISSING',
+  'META_TITLE_MISSING',
+  'META_DESCRIPTION_MISSING',
+  'CANONICAL_URL_MISSING',
+  'META_TITLE_LENGTH_REVIEW',
+  'META_DESCRIPTION_LENGTH_REVIEW',
+] as const;
+export type AuditFindingCode = (typeof AUDIT_FINDING_CODES)[number];
+
+export type AuditFinding = {
+  code: AuditFindingCode;
+  severity: DiagnosticSeverity;
+  certainty: DiagnosticCertainty;
+  message: string;
+  evidence: Record<string, unknown>;
+  ghost_issue: string | null;
+  safe_fix: { available: boolean; reason: string };
+};
+
+export const SITE_CHECK_CODES = [
+  'SITE_HOMEPAGE_HTTP',
+  'SITE_SITEMAP_HTTP',
+  'SITE_SITEMAP_CONTENT_TYPE',
+  'TARGET_PUBLIC_HTTP',
+  'TARGET_TITLE_MARKER',
+  'TARGET_CANONICAL_MATCH',
+  'ROUTE_EXTENSION_404_GHOST6',
+  'SHARE_PORTAL_PREREQUISITE_MISSING',
+  'SHARE_INTERACTION_UNVERIFIED',
+  'FEATURE_IMAGE_HTTP',
+  'FEATURE_IMAGE_CONTENT_TYPE',
+] as const;
+export type SiteCheckCode = (typeof SITE_CHECK_CODES)[number];
+
+export type SiteHealthCheck = {
+  code: SiteCheckCode;
+  result: 'pass' | 'warning' | 'fail' | 'unavailable';
+  certainty: DiagnosticCertainty;
+  target: 'site' | ChangeTarget;
+  surface: 'ghost' | 'delivery' | 'shared' | 'media';
+  url: string;
+  evidence: Record<string, unknown>;
+  message: string;
+  ghost_issue: string | null;
+  suggested_action: string | null;
+};
+
+export type SiteHealthReport = {
+  site: { title: string; url: string; ghost_version?: string; checked_at: string };
+  checks: SiteHealthCheck[];
+  summary: Record<'pass' | 'warning' | 'fail' | 'unavailable', number>;
+};

@@ -6,7 +6,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 
 | Horizon | Milestone | Status | Plan |
 | --- | --- | --- | --- |
-| Next | v0.10.0 Ghost Publication Doctor | Detailed contract and sector-best surface/media/browser decisions approved; implementation has not started | [0.10 Ghost Publication Doctor](docs/plans/0.10-publication-doctor.md) |
+| Shipped | v0.10.0 Ghost Publication Doctor | Published with bounded diagnostics and Ghost 5/6 plus three-engine browser verification on 2026-08-16 | [0.10 Ghost Publication Doctor](docs/plans/0.10-publication-doctor.md) |
 | Shipped | v0.9.0 native authoring gap | Published and verified on npm and the MCP Registry on 2026-08-16 | [0.9 Native authoring](docs/plans/0.9-native-authoring.md) |
 | Shipped | v0.8.0 native rich-card drafts | Published and verified on npm and the MCP Registry on 2026-08-16 | [0.8 Adoption and rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md) |
 | Shipped | v0.7.0 editorial workflow | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.7 Editorial workflow](docs/plans/0.7-editorial-workflow.md) |
@@ -19,7 +19,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 | Shipped | v0.4.0 safe Pages vertical | Published and verified on 2026-07-21 | [0.4 Pages](docs/plans/0.4-pages.md) |
 | Demand-gated | Broader interoperability | No committed release beyond portable prompts | [Future interoperability](docs/plans/future-interoperability.md) |
 
-The npm package and official MCP Registry serve `0.9.0`. On 2026-08-16, ChatGPT desktop `26.810.41047` and bundled Codex CLI `0.148.0-alpha.9` passed discovery, redacted setup dry-run, and a read-only connection check against Ghost `6.42`. Cursor and Claude configuration targets were detected from local configuration directories, but current application runtimes were unavailable and remain unverified.
+The npm package and official MCP Registry serve `0.10.0`. On 2026-08-16, ChatGPT desktop `26.810.41047` and bundled Codex CLI `0.148.0-alpha.9` passed discovery, redacted setup dry-run, and a read-only connection check against Ghost `6.42`. Cursor and Claude configuration targets were detected from local configuration directories, but current application runtimes were unavailable and remain unverified.
 
 ## Gap register
 
@@ -44,7 +44,7 @@ The npm package and official MCP Registry serve `0.9.0`. On 2026-08-16, ChatGPT 
 | P1 | Release messaging can drift across npm, the MCP Registry, and GitHub Releases | Publish v0.8.0 as Latest and create future GitHub Releases only after the package and Registry jobs succeed | Closed on 2026-08-16 |
 | P1 | Current rich-card creation depends on HTML conversion or host-authored Lexical | Add bounded native blocks to the existing draft tools and prove Ghost 5/6 readback | Released in v0.8.0 |
 | P1 | The bounded native draft set lacks common authoring structures and inline marks | Add lists, quotes, code blocks, safe-upload image cards, bookmarks, and inline bold/italic/code/links without widening the tool surface | Released in v0.9.0 |
-| P1 | Ghost and headless publication failures are discovered after release or upgrade | Inspect both surfaces separately, include safe feature-image evidence, and require real-browser share verification without arbitrary crawling or Ghost administration | Detailed v0.10.0 contract approved; implementation not started |
+| P1 | Ghost and headless publication failures are discovered after release or upgrade | Inspect both surfaces separately, include safe feature-image evidence, and require real-browser share verification without arbitrary crawling or Ghost administration | Released in v0.10.0 |
 | P1 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Released in v0.5.0 |
 
 ## Delivery order
@@ -57,7 +57,7 @@ The npm package and official MCP Registry serve `0.9.0`. On 2026-08-16, ChatGPT 
 6. Bounded native rich-card draft pilot with disposable Ghost 5/6: complete.
 7. v0.8.0 native rich-card drafts: complete; maintainer acceptance replaced the proposed non-maintainer demo gate.
 8. v0.9.0 native authoring gap: complete.
-9. v0.10.0 Ghost Publication Doctor: detailed contract approved; implementation is next.
+9. v0.10.0 Ghost Publication Doctor: complete.
 10. Correct release defects with the next patch version; never overwrite published versions.
 
 ## Non-goals

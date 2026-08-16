@@ -22,11 +22,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Install browser engines
+        run: npx playwright install --with-deps chromium firefox webkit
       - name: Start Ghost
         env:
           GHOST_IMAGE: ${{ matrix.image }}
         run: docker compose -f test/docker-compose.yml up -d
-      - name: Run publishing workflow
+      - name: Run publishing and three-engine doctor workflow
         env:
           GHOST_IMAGE: ${{ matrix.image }}
         run: npm run test:integration

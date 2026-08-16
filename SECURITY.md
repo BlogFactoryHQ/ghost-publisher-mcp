@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest released minor version, currently `0.9.x`.
+Security fixes are applied to the latest released minor version, currently `0.10.x`.
 
 ## Reporting a vulnerability
 
@@ -12,4 +12,4 @@ Rotate any credential that may have appeared in a log, screenshot, issue, or cha
 
 ## Deployment boundary
 
-Version 0.8 is a local stdio server. Do not expose it as a network service. A remote transport requires a separate authentication and threat-model review.
+Version 0.10 is a local stdio server. Do not expose it as a network service. A remote transport requires a separate authentication and threat-model review.

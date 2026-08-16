@@ -10,8 +10,8 @@ import MarkdownIt from 'markdown-it';
 import { canEditDraft, canPublish, canSchedule, redactSecrets, type Config } from './config.js';
 import {
   canonicalJson,
+  analyzeLexical,
   insertHtmlSection,
-  lexicalHeadings,
   lexicalInventory,
   lexicalLinks,
   parseLexical,
@@ -36,9 +36,12 @@ import type {
   DraftInput,
   DraftRichText,
   ImageAsset,
+  AuditFinding,
   PageInput,
   PageRef,
   PostRef,
+  SiteHealthCheck,
+  SiteHealthReport,
 } from './types.js';
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -481,20 +484,30 @@ export class GhostPublisher {
       ((host) => lookup(host, { all: true, verbatim: true }));
   }
 
-  private async ghostPageUrl(value: string): Promise<string> {
+  private async publicUrl(value: string): Promise<string> {
     const url = new URL(safePublicUrl(value));
     const allowLocal = localHostname(new URL(this.config.ghostUrl).hostname);
     if (allowLocal && localHostname(url.hostname)) return url.toString();
     if (localHostname(url.hostname) || privateAddress(url.hostname)) {
-      throw new Error('Ghost returned a private or loopback public page URL');
+      throw new Error('Public URL resolves to a private or loopback address');
     }
     if (!isIP(hostname(url.hostname))) {
       const addresses = await this.resolveHost(hostname(url.hostname));
       if (!addresses.length || addresses.some(({ address }) => privateAddress(address))) {
-        throw new Error('Ghost returned a private or loopback public page URL');
+        throw new Error('Public URL resolves to a private or loopback address');
       }
     }
     return url.toString();
+  }
+
+  private async publicResponse(value: string, redirect: 'error' | 'manual' = 'error') {
+    const url = await this.publicUrl(value);
+    const response = await this.request(url, {
+      method: 'GET',
+      redirect,
+      signal: AbortSignal.timeout(15_000),
+    });
+    return { url, response };
   }
 
   async checkConnection() {
@@ -777,17 +790,95 @@ export class GhostPublisher {
         let nodes: Record<string, number> = {};
         let protectedNodes: string[] = [];
         let links: ReturnType<typeof lexicalLinks> = [];
-        let text: string[] = [];
+        let headings: ReturnType<typeof analyzeLexical>['headings'] = [];
+        let analysis: ReturnType<typeof analyzeLexical> | undefined;
+        const findings: AuditFinding[] = [];
+        const add = (
+          code: AuditFinding['code'],
+          severity: AuditFinding['severity'],
+          certainty: AuditFinding['certainty'],
+          message: string,
+          evidence: Record<string, unknown>,
+          reason: string,
+          available = false,
+          ghostIssue: string | null = null,
+        ) => findings.push({
+          code,
+          severity,
+          certainty,
+          message,
+          evidence,
+          ghost_issue: ghostIssue,
+          safe_fix: { available, reason },
+        });
         try {
-          ({ nodes, protectedNodes } = lexicalInventory(snapshot.lexical));
-          links = lexicalLinks(snapshot.lexical);
-          text = lexicalHeadings(snapshot.lexical);
+          analysis = analyzeLexical(snapshot.lexical);
+          ({ nodes, protectedNodes, headings } = analysis);
+          links = analysis.links.map(({ type, url, text }) => ({ type, url, ...(text ? { text } : {}) }));
         } catch {
           lexicalParseable = false;
+          add(
+            'CONTENT_LEXICAL_INVALID',
+            'blocker',
+            'confirmed',
+            'Lexical content cannot be parsed as a document with root children.',
+            { field: 'lexical' },
+            'No structure-preserving fix is available for invalid Lexical content.',
+          );
+        }
+        if (analysis) {
+          if (!analysis.meaningful) {
+            add('CONTENT_EMPTY_BODY', 'warning', 'confirmed', 'The content body has no meaningful text or card content.', { field: 'lexical' }, 'Add reviewed content manually.');
+          }
+          for (let headingIndex = 1; headingIndex < headings.length; headingIndex += 1) {
+            const previous = headings[headingIndex - 1]!;
+            const current = headings[headingIndex]!;
+            if (previous.level && current.level && current.level > previous.level + 1) {
+              add('HEADING_LEVEL_SKIP', 'warning', 'confirmed', 'A heading level skips more than one level.', { from_level: previous.level, to_level: current.level, node_index: current.index }, 'No proven heading-node edit is available.');
+            }
+          }
+          const emptyHeadings = headings.filter((heading) => !heading.text).map((heading) => heading.index);
+          if (emptyHeadings.length) add('HEADING_EMPTY', 'warning', 'confirmed', 'One or more heading nodes have no readable text.', { node_indexes: emptyHeadings }, 'No proven heading-node edit is available.');
+          if (analysis.complexScriptStarts.length) add('EDITOR_COMPLEX_SCRIPT_START', 'info', 'heuristic', 'One or more text blocks start with Hangul and merit manual editor review.', { node_indexes: analysis.complexScriptStarts }, 'Native MCP creation already bypasses initial editor typing.', false, 'https://github.com/TryGhost/Ghost/issues/29220');
+
+          const imageIndexes = analysis.images.filter((image) => image.alt == null).map((image) => image.index);
+          const featureMissing = Boolean(snapshot.feature_image && snapshot.feature_image_alt == null);
+          if (featureMissing || imageIndexes.length) add('IMAGE_ALT_MISSING', 'warning', 'confirmed', 'One or more images have no alt value.', { feature_image: featureMissing, image_node_indexes: imageIndexes }, featureMissing && !imageIndexes.length ? 'Use an approved update_fields change for feature_image_alt.' : 'Image-card alt text requires manual structure-safe editing.', featureMissing && !imageIndexes.length);
+          const decorative = analysis.images.filter((image) => image.alt === '' && Boolean(image.caption?.trim() || image.title?.trim())).map((image) => image.index);
+          if (decorative.length) add('IMAGE_ALT_EMPTY_DECORATIVE', 'info', 'heuristic', 'Image cards with empty alt values and descriptive metadata require decorative-image confirmation.', { node_indexes: decorative }, 'Confirm decorative intent manually.');
+          if (analysis.toggles.length) add('CARD_TOGGLE_A11Y_REVIEW', 'warning', 'confirmed', 'Toggle cards require manual screen-reader review.', { node_type: 'toggle', node_indexes: analysis.toggles }, 'No proven structure-preserving toggle conversion exists.', false, 'https://github.com/TryGhost/Ghost/issues/27462');
+          const galleryGroups = new Map<string, number[]>();
+          for (const gallery of analysis.galleries) galleryGroups.set(gallery.fingerprint, [...(galleryGroups.get(gallery.fingerprint) ?? []), gallery.index]);
+          const duplicateGalleries = [...galleryGroups.values()].filter((group) => group.length > 1);
+          if (duplicateGalleries.length) add('CARD_GALLERY_DUPLICATE_PAYLOAD', 'warning', 'heuristic', 'Separate gallery nodes have identical ordered payloads and require manual review.', { node_index_groups: duplicateGalleries }, 'Repeated galleries may be intentional and are not rewritten.', false, 'https://github.com/TryGhost/Ghost/issues/29221');
+          const incompleteBookmarks = analysis.bookmarks.filter((bookmark) => !bookmark.url?.trim() || !bookmark.title?.trim()).map((bookmark) => bookmark.index);
+          if (incompleteBookmarks.length) add('BOOKMARK_METADATA_INCOMPLETE', 'info', 'confirmed', 'One or more bookmark cards lack a URL or title.', { node_indexes: incompleteBookmarks }, 'Bookmark metadata requires manual structure-safe editing.');
+          const emptyButtons = analysis.buttons.filter((button) => !button.label).map((button) => button.index);
+          if (emptyButtons.length) add('BUTTON_LABEL_EMPTY', 'warning', 'confirmed', 'One or more buttons have no readable label.', { node_indexes: emptyButtons }, 'Button labels require manual structure-safe editing.');
+          const invalidLinks = analysis.links.filter((link) => {
+            try {
+              const url = new URL(link.url);
+              return !['http:', 'https:'].includes(url.protocol) || Boolean(url.username || url.password);
+            } catch {
+              return true;
+            }
+          }).map((link) => link.index);
+          if (invalidLinks.length) add('LINK_URL_INVALID', 'blocker', 'confirmed', 'One or more links are not valid credential-free HTTP(S) URLs.', { node_indexes: invalidLinks }, 'No automatic link rewrite is available.');
+          const emptyLinks = analysis.links.filter((link) => !link.text?.trim()).map((link) => link.index);
+          if (emptyLinks.length) add('LINK_TEXT_EMPTY', 'warning', 'confirmed', 'One or more links have no readable label.', { node_indexes: emptyLinks }, 'No automatic link-label rewrite is available.');
         }
         const missingMetadata = ['meta_title', 'meta_description', 'canonical_url'].filter(
           (field) => !snapshot[field],
         );
+        const sourcesFound = headings.some((heading) => /^(kaynaklar|sources)\s*:?$/i.test(heading.text.trim()));
+        if (!sourcesFound) add('SOURCES_SECTION_MISSING', 'info', 'heuristic', 'No Sources or Kaynaklar heading was found.', { heading_count: headings.length }, 'Use append_section only when the user requests a sources section.', true);
+        if (!snapshot.meta_title) add('META_TITLE_MISSING', 'warning', 'confirmed', 'The meta title field is absent.', { field: 'meta_title' }, 'Use an approved update_fields change with a reviewed value.', true);
+        if (!snapshot.meta_description) add('META_DESCRIPTION_MISSING', 'warning', 'confirmed', 'The meta description field is absent.', { field: 'meta_description' }, 'Use an approved update_fields change with a reviewed value.', true);
+        if (!snapshot.canonical_url) add('CANONICAL_URL_MISSING', 'info', 'confirmed', 'The canonical override field is absent.', { field: 'canonical_url' }, 'Absence may be intentional; review before proposing a value.');
+        const metaTitleLength = String(snapshot.meta_title ?? '').length;
+        if (metaTitleLength && (metaTitleLength < 30 || metaTitleLength > 60)) add('META_TITLE_LENGTH_REVIEW', 'info', 'heuristic', 'The meta title length is outside the documented 30–60 character review range.', { field: 'meta_title', length: metaTitleLength, minimum: 30, maximum: 60 }, 'Use an approved update_fields change only after evidence-backed review.', true);
+        const metaDescriptionLength = String(snapshot.meta_description ?? '').length;
+        if (metaDescriptionLength && (metaDescriptionLength < 70 || metaDescriptionLength > 160)) add('META_DESCRIPTION_LENGTH_REVIEW', 'info', 'heuristic', 'The meta description length is outside the documented 70–160 character review range.', { field: 'meta_description', length: metaDescriptionLength, minimum: 70, maximum: 160 }, 'Use an approved update_fields change only after evidence-backed review.', true);
         return {
           target: targets[index]!,
           lexical_parseable: lexicalParseable,
@@ -801,7 +892,8 @@ export class GhostPublisher {
             meta_description: String(snapshot.meta_description ?? '').length,
           },
           links_and_citations: links,
-          sources_section_found: text.some((value) => /^(kaynaklar|sources)\s*:?$/i.test(value.trim())),
+          sources_section_found: sourcesFound,
+          findings,
         };
       }),
     };
@@ -1352,6 +1444,145 @@ export class GhostPublisher {
     }
   }
 
+  async checkSiteHealth(input: { posts?: TransitionTarget[]; pages?: TransitionTarget[] }): Promise<SiteHealthReport> {
+    const posts = input.posts ?? [];
+    const pages = input.pages ?? [];
+    const targets = [
+      ...posts.map((target) => ({ type: 'post' as const, ...target })),
+      ...pages.map((target) => ({ type: 'page' as const, ...target })),
+    ];
+    if (targets.length > 5) throw new Error('Site health checks accept at most five exact targets');
+    const keys = targets.map((target) => `${target.type}:${target.id}`);
+    if (new Set(keys).size !== keys.length) throw new Error('Site health targets must be unique');
+
+    const site = await this.checkConnection();
+    const snapshots = await Promise.all(targets.map(async (target) => {
+      const snapshot = target.type === 'post' ? await this.getPost(target.id) : await this.getPage(target.id);
+      if (snapshot.updated_at !== target.updated_at) throw new Error(`${target.type === 'post' ? 'Post' : 'Page'} changed since it was read`);
+      if (snapshot.status !== 'published') throw new Error(`Expected published ${target.type}, found ${snapshot.status}`);
+      return { target, snapshot };
+    }));
+
+    type Surface = SiteHealthCheck['surface'];
+    type Role =
+      | { kind: 'homepage' | 'sitemap'; surface: Exclude<Surface, 'media'> }
+      | { kind: 'target'; surface: Exclude<Surface, 'media'>; target: ChangeRequest['target']; title: string; canonical: string }
+      | { kind: 'image'; surface: 'media'; target: ChangeRequest['target'] };
+    const requests = new Map<string, Role[]>();
+    const addRequest = (value: string, role: Role) => {
+      const url = safePublicUrl(value);
+      requests.set(url, [...(requests.get(url) ?? []), role]);
+    };
+    const surfaceBases = new Map<string, Set<'ghost' | 'delivery'>>();
+    const addBase = (value: string, owner: 'ghost' | 'delivery') => {
+      const base = new URL(safePublicUrl(value)).origin + '/';
+      surfaceBases.set(base, new Set([...(surfaceBases.get(base) ?? []), owner]));
+    };
+    addBase(site.url, 'ghost');
+    for (const template of [this.config.publicPostUrlTemplate, this.config.publicPageUrlTemplate]) {
+      if (template) addBase(template.replace('{slug}', 'target'), 'delivery');
+    }
+    for (const [base, owners] of surfaceBases) {
+      const surface: Exclude<Surface, 'media'> = owners.size === 2 ? 'shared' : owners.has('ghost') ? 'ghost' : 'delivery';
+      addRequest(base, { kind: 'homepage', surface });
+      addRequest(new URL('/sitemap.xml', base).toString(), { kind: 'sitemap', surface });
+    }
+    for (const { target, snapshot } of snapshots) {
+      const urls = new Map<string, Set<'ghost' | 'delivery'>>();
+      if (snapshot.url) urls.set(safePublicUrl(snapshot.url), new Set(['ghost']));
+      const template = target.type === 'post' ? this.config.publicPostUrlTemplate : this.config.publicPageUrlTemplate;
+      if (template) {
+        const delivery = safePublicUrl(template.replace('{slug}', encodeURIComponent(snapshot.slug)));
+        urls.set(delivery, new Set([...(urls.get(delivery) ?? []), 'delivery']));
+      }
+      if (!urls.size) throw new Error(`Ghost returned no public ${target.type} URL and no delivery template is configured`);
+      for (const [url, owners] of urls) {
+        const surface: Exclude<Surface, 'media'> = owners.size === 2 ? 'shared' : owners.has('ghost') ? 'ghost' : 'delivery';
+        addRequest(url, {
+          kind: 'target',
+          surface,
+          target,
+          title: snapshot.title,
+          canonical: String(snapshot.canonical_url ?? url),
+        });
+      }
+      if (snapshot.feature_image) addRequest(String(snapshot.feature_image), { kind: 'image', surface: 'media', target });
+    }
+    if (requests.size > 20) throw new Error('Site health check exceeds the twenty-request ceiling');
+    await Promise.all([...requests.keys()].map((url) => this.publicUrl(url)));
+
+    const fetched = new Map<string, { status: number; ok: boolean; contentType: string; contentLength?: number; cors?: string; body: string; error?: true }>();
+    const entries = [...requests.entries()];
+    for (let offset = 0; offset < entries.length; offset += 4) {
+      await Promise.all(entries.slice(offset, offset + 4).map(async ([url, roles]) => {
+        try {
+          const { response } = await this.publicResponse(url, 'manual');
+          const contentType = response.headers?.get?.('content-type') ?? '';
+          const declared = Number(response.headers?.get?.('content-length'));
+          const readBody = roles.some((role) => role.kind !== 'image');
+          const body = readBody ? await liveResponseText(response) : '';
+          fetched.set(url, {
+            status: response.status,
+            ok: response.ok,
+            contentType,
+            ...(Number.isFinite(declared) ? { contentLength: declared } : {}),
+            ...(response.headers?.get?.('access-control-allow-origin') ? { cors: response.headers.get('access-control-allow-origin')! } : {}),
+            body,
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message === 'Live response exceeds the 2 MB limit') throw error;
+          fetched.set(url, { status: 0, ok: false, contentType: '', body: '', error: true });
+        }
+      }));
+    }
+
+    const checks: SiteHealthCheck[] = [];
+    const addCheck = (check: SiteHealthCheck) => checks.push(check);
+    const httpResult = (status: number, ok: boolean): SiteHealthCheck['result'] => status === 0 ? 'unavailable' : ok ? 'pass' : 'fail';
+    const ghostMajor = Number.parseInt(site.version?.split('.')[0] ?? '', 10);
+    for (const [url, roles] of requests) {
+      const response = fetched.get(url)!;
+      for (const role of roles) {
+        const target: SiteHealthCheck['target'] = 'target' in role ? role.target : 'site';
+        const base = { certainty: 'confirmed' as const, target, surface: role.surface, url, ghost_issue: null, suggested_action: null };
+        if (role.kind === 'homepage') {
+          addCheck({ ...base, code: 'SITE_HOMEPAGE_HTTP', result: httpResult(response.status, response.ok), evidence: { status: response.status, content_type: response.contentType }, message: response.ok ? 'Homepage returned a successful HTTP response.' : response.status ? `Homepage returned HTTP ${response.status}.` : 'Homepage response was unavailable.' });
+        } else if (role.kind === 'sitemap') {
+          addCheck({ ...base, code: 'SITE_SITEMAP_HTTP', result: httpResult(response.status, response.ok), evidence: { status: response.status, content_type: response.contentType }, message: response.ok ? 'Sitemap returned a successful HTTP response.' : response.status ? `Sitemap returned HTTP ${response.status}.` : 'Sitemap response was unavailable.' });
+          const xml = /(?:application|text)\/(?:[^;]+\+)?xml/i.test(response.contentType);
+          addCheck({ ...base, code: 'SITE_SITEMAP_CONTENT_TYPE', result: response.status === 0 ? 'unavailable' : xml ? 'pass' : 'warning', evidence: { status: response.status, content_type: response.contentType }, message: xml ? 'Sitemap identifies an XML content type.' : response.status ? 'Sitemap does not identify an XML content type.' : 'Sitemap content type was unavailable.', ghost_issue: 'https://github.com/TryGhost/Ghost/issues/29707' });
+        } else if (role.kind === 'target') {
+          const bodyText = decodeHtml(response.body.replace(/<[^>]+>/g, ' '));
+          const metadata = renderedMetadata(response.body);
+          const titleMatch = response.ok && bodyText.includes(role.title);
+          const canonicalMatch = response.ok && metadata.canonical === role.canonical;
+          addCheck({ ...base, code: 'TARGET_PUBLIC_HTTP', result: httpResult(response.status, response.ok), evidence: { status: response.status, content_type: response.contentType, ghost_version: site.version ?? null }, message: response.ok ? 'The exact public target returned a successful HTTP response.' : response.status ? `The exact public target returned HTTP ${response.status}.` : 'The exact public target response was unavailable.' });
+          addCheck({ ...base, code: 'TARGET_TITLE_MARKER', result: response.status === 0 ? 'unavailable' : titleMatch ? 'pass' : 'fail', evidence: { status: response.status, expected_title: role.title, matched: titleMatch }, message: titleMatch ? 'The expected Ghost title is present.' : response.status ? 'The expected Ghost title is absent.' : 'Title evidence was unavailable.' });
+          addCheck({ ...base, code: 'TARGET_CANONICAL_MATCH', result: response.status === 0 ? 'unavailable' : canonicalMatch ? 'pass' : 'fail', evidence: { status: response.status, expected_canonical: role.canonical, rendered_canonical: metadata.canonical ?? null, matched: canonicalMatch }, message: canonicalMatch ? 'The rendered canonical matches the expected canonical.' : response.status ? 'The rendered canonical does not match the expected canonical.' : 'Canonical evidence was unavailable.' });
+          if (ghostMajor === 6 && /\.[a-z\d]{1,10}\/?$/i.test(new URL(url).pathname) && response.status === 404) {
+            addCheck({ ...base, code: 'ROUTE_EXTENSION_404_GHOST6', result: 'fail', evidence: { status: 404, ghost_version: site.version ?? null, extension_bearing_path: true }, message: 'A Ghost 6 extension-bearing generated content URL returned HTTP 404.', ghost_issue: 'https://github.com/TryGhost/Ghost/issues/29991', suggested_action: 'Review the exact route configuration manually; the MCP does not edit routes or themes.' });
+          }
+          const shareTrigger = /#\/share\b|data-ghost-share|class=["'][^"']*\b(?:gh|kg)-[^"']*share/i.test(response.body);
+          const portal = /portal(?:\.min)?\.js|data-ghost=["']portal/i.test(response.body);
+          if (shareTrigger && !portal) addCheck({ ...base, code: 'SHARE_PORTAL_PREREQUISITE_MISSING', result: 'warning', evidence: { share_trigger: true, portal_script: false }, message: 'Share trigger markup is present but Portal script evidence is absent.', ghost_issue: 'https://github.com/TryGhost/Ghost/issues/27415', suggested_action: 'Verify the share interaction in a real browser and review Ghost Portal settings.' });
+          addCheck({ ...base, code: 'SHARE_INTERACTION_UNVERIFIED', result: 'unavailable', evidence: { static_html_only: true }, message: 'Static HTML cannot verify share interaction behavior.', ghost_issue: 'https://github.com/TryGhost/Ghost/issues/27415', suggested_action: 'Verify the rendered share interaction in a real browser.' });
+        } else {
+          const imageType = IMAGE_TYPES.has(response.contentType.split(';', 1)[0]!.trim().toLowerCase());
+          const evidence = { status: response.status, content_type: response.contentType, ...(response.contentLength !== undefined ? { declared_size: response.contentLength } : {}), ...(response.cors ? { cors: response.cors } : {}) };
+          addCheck({ ...base, code: 'FEATURE_IMAGE_HTTP', result: httpResult(response.status, response.ok), evidence, message: response.ok ? 'The Ghost-returned feature image is reachable.' : response.status ? `The Ghost-returned feature image returned HTTP ${response.status}.` : 'Feature-image response was unavailable.', ghost_issue: 'https://github.com/TryGhost/Ghost/issues/24600' });
+          addCheck({ ...base, code: 'FEATURE_IMAGE_CONTENT_TYPE', result: response.status === 0 ? 'unavailable' : imageType ? 'pass' : 'warning', evidence, message: imageType ? 'The feature image has an allowed image content type.' : response.status ? 'The feature image does not have an allowed image content type.' : 'Feature-image content type was unavailable.', ghost_issue: 'https://github.com/TryGhost/Ghost/issues/24600', suggested_action: imageType ? null : 'Supply a local replacement and use the existing approved upload/change workflow if replacement is needed.' });
+        }
+      }
+    }
+    const summary = { pass: 0, warning: 0, fail: 0, unavailable: 0 };
+    for (const check of checks) summary[check.result] += 1;
+    return {
+      site: { title: site.title, url: await this.publicUrl(site.url), ...(site.version ? { ghost_version: site.version } : {}), checked_at: new Date().toISOString() },
+      checks,
+      summary,
+    };
+  }
+
   async checkLivePosts(
     posts: {
       slug: string;
@@ -1368,10 +1599,7 @@ export class GhostPublisher {
       posts.map(async (post) => {
         const url = this.config.publicPostUrlTemplate!.replace('{slug}', encodeURIComponent(post.slug));
         try {
-          const response = await this.request(url, {
-            redirect: 'error',
-            signal: AbortSignal.timeout(15_000),
-          });
+          const { response } = await this.publicResponse(url);
           const body = await liveResponseText(response);
           const rendered = renderedMetadata(body);
           const titleMatch = response.ok && decodeHtml(body.replace(/<[^>]+>/g, ' ')).includes(post.title);
@@ -1428,13 +1656,7 @@ export class GhostPublisher {
             ? this.config.publicPageUrlTemplate.replace('{slug}', encodeURIComponent(String(page.slug)))
             : String(page.url ?? '');
           if (!selectedUrl) throw new Error('Ghost returned no public page URL');
-          const url = this.config.publicPageUrlTemplate
-            ? safePublicUrl(selectedUrl)
-            : await this.ghostPageUrl(selectedUrl);
-          const response = await this.request(url, {
-            redirect: 'error',
-            signal: AbortSignal.timeout(15_000),
-          });
+          const { url, response } = await this.publicResponse(selectedUrl);
           const body = await liveResponseText(response);
           const rendered = renderedMetadata(body);
           const titleMatch = response.ok && decodeHtml(body.replace(/<[^>]+>/g, ' ')).includes(String(page.title));

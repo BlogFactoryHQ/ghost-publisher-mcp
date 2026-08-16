@@ -94,6 +94,7 @@ describe('MCP contract', () => {
         'trigger_deploy',
         'check_live_posts',
         'check_live_pages',
+        'check_site_health',
       ].sort(),
     );
     expect(tools.tools.map((tool) => tool.name)).not.toContain('generate_image');
@@ -134,6 +135,19 @@ describe('MCP contract', () => {
     expect(JSON.stringify(pageCreateSchema)).not.toContain('tags');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('authors');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('featured');
+    const healthTool = tools.tools.find((tool) => tool.name === 'check_site_health');
+    expect(healthTool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+    expect(Object.keys((healthTool?.inputSchema as { properties: Record<string, unknown> }).properties).sort()).toEqual([
+      'pages',
+      'posts',
+    ]);
+    expect(JSON.stringify(healthTool?.inputSchema)).not.toMatch(/caller_url|hostname|method|crawl/i);
+
+    const arbitraryUrl = await client.callTool({
+      name: 'check_site_health',
+      arguments: { url: 'https://attacker.example.com' },
+    });
+    expect(arbitraryUrl.isError).toBe(true);
 
     const result = await client.callTool({ name: 'check_connection', arguments: {} });
     expect(result.structuredContent).toMatchObject({
@@ -233,7 +247,7 @@ describe('MCP contract', () => {
     await server.close();
   });
 
-  it('advertises exactly twelve tools in read-only mode', async () => {
+  it('advertises exactly thirteen tools in read-only mode', async () => {
     const publisher = new GhostPublisher(
       { ...config, permissionProfile: 'read-only', readOnly: true },
       { ghost: { site: { read: async () => ({}) }, posts: {}, tags: {} } },
@@ -255,10 +269,14 @@ describe('MCP contract', () => {
         'audit_content',
         'plan_schedule',
         'check_live_pages',
+        'check_site_health',
       ].sort(),
     );
 
-    expect(client.getServerCapabilities()?.prompts).toBeUndefined();
+    expect(client.getServerCapabilities()?.prompts).toBeDefined();
+    expect((await client.listPrompts()).prompts).toEqual([
+      expect.objectContaining({ name: 'ghost_publication_doctor', arguments: undefined }),
+    ]);
 
     await client.close();
     await server.close();
@@ -293,9 +311,13 @@ describe('MCP contract', () => {
       'plan_schedule',
       'check_live_posts',
       'check_live_pages',
+      'check_site_health',
     ];
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...always, ...writes].sort());
-    expect(client.getServerCapabilities()?.prompts).toBeUndefined();
+    expect(client.getServerCapabilities()?.prompts).toBeDefined();
+    expect((await client.listPrompts()).prompts).toEqual([
+      expect.objectContaining({ name: 'ghost_publication_doctor', arguments: undefined }),
+    ]);
     await client.close();
     await server.close();
   });
@@ -331,7 +353,7 @@ describe('MCP contract', () => {
     await server.close();
   });
 
-  it('advertises two zero-argument prompts with portable safety workflows in normal mode', async () => {
+  it('advertises three zero-argument prompts with portable safety workflows in normal mode', async () => {
     const publisher = new GhostPublisher(config, {
       ghost: { site: { read: async () => ({}) } },
     });
@@ -342,6 +364,7 @@ describe('MCP contract', () => {
     expect(prompts.prompts).toEqual([
       expect.objectContaining({ name: 'ghost_safe_publish', arguments: undefined }),
       expect.objectContaining({ name: 'ghost_seo_optimize', arguments: undefined }),
+      expect.objectContaining({ name: 'ghost_publication_doctor', arguments: undefined }),
     ]);
 
     const safePublish = await client.getPrompt({ name: 'ghost_safe_publish' });
@@ -373,6 +396,16 @@ describe('MCP contract', () => {
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('captured HTML and Lexical body');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('live_check_configured: true');
     expect(JSON.stringify(seoOptimize.messages[0]?.content)).toContain('trigger_deploy exactly once');
+
+    const doctor = await client.getPrompt({ name: 'ghost_publication_doctor' });
+    const doctorText = JSON.stringify(doctor.messages[0]?.content);
+    expect(doctorText).toContain('untrusted evidence');
+    expect(doctorText).toContain('at most five');
+    expect(doctorText).toContain('check_site_health');
+    expect(doctorText).toContain('stop before remediation');
+    expect(doctorText).toContain('preview_changes');
+    expect(doctorText).toContain('apply_change_set');
+    expect(doctorText).toContain('Never publish');
 
     await client.close();
     await server.close();

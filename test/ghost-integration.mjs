@@ -2,9 +2,12 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { URL } from 'node:url';
 import GhostAdminAPI from '@tryghost/admin-api';
+import { chromium, firefox, webkit } from 'playwright';
 import { GhostPublisher } from '../dist/publisher.js';
 
 const ghostUrl = process.env.GHOST_INTEGRATION_URL ?? 'http://localhost:2368';
@@ -75,6 +78,58 @@ const publisher = new GhostPublisher(config);
 const api = new GhostAdminAPI({ url: ghostUrl, key: adminKey, version: 'v5.0' });
 let created;
 let createdPage;
+let fixtureServer;
+
+async function startShareFixture(post) {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, 'http://localhost');
+    response.setHeader('content-type', url.pathname === '/sitemap.xml' ? 'application/xml' : 'text/html');
+    if (url.pathname === '/sitemap.xml') return response.end('<?xml version="1.0"?><urlset/>');
+    if (url.pathname === '/') return response.end('<h1>Publication fixture</h1>');
+    if (url.pathname.startsWith('/route/')) {
+      response.statusCode = 404;
+      return response.end('Not found');
+    }
+    const healthy = url.pathname.startsWith('/healthy/');
+    const canonical = `http://127.0.0.1:${server.address().port}${url.pathname}`;
+    response.end(`<!doctype html><html><head><link rel="canonical" href="${canonical}"></head><body>
+      <article><h1>${post.title}</h1><a data-ghost-share href="#/share">Share</a></article>
+      ${healthy ? '<dialog id="portal-share" aria-label="Share this post">Share interface</dialog><script data-ghost="portal">document.querySelector("[data-ghost-share]").addEventListener("click",()=>document.querySelector("#portal-share").showModal())</script>' : ''}
+    </body></html>`);
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return { server, base: `http://127.0.0.1:${server.address().port}` };
+}
+
+async function verifyShareBrowsers(post, fixtureBase) {
+  for (const [engine, launcher] of Object.entries({ chromium, firefox, webkit })) {
+    const browser = await launcher.launch();
+    try {
+      const page = await browser.newPage();
+      await page.goto(post.url, { waitUntil: 'domcontentloaded' });
+      assert.match(await page.locator('body').innerText(), /Integration draft/);
+      const actualShare = page.locator('a[href="#/share"], button[data-ghost-share]').first();
+      if (await actualShare.count()) await actualShare.click();
+      else await page.goto(`${post.url}#/share`, { waitUntil: 'domcontentloaded' });
+
+      await page.goto(`${fixtureBase}/healthy/${post.slug}`, { waitUntil: 'domcontentloaded' });
+      await page.locator('[data-ghost-share]').click();
+      assert.equal(await page.locator('#portal-share').isVisible(), true);
+      assert.equal(new URL(page.url()).hash, '#/share');
+
+      await page.goto(`${fixtureBase}/missing/${post.slug}`, { waitUntil: 'domcontentloaded' });
+      await page.locator('[data-ghost-share]').click();
+      assert.equal(await page.locator('[role="dialog"]').count(), 0);
+      assert.equal(new URL(page.url()).hash, '#/share');
+      console.log(`${engine} share fixture passed for ${process.env.GHOST_IMAGE ?? 'Ghost'}`);
+    } finally {
+      await browser.close();
+    }
+  }
+}
 
 async function applyExact(changes) {
   const preview = await publisher.previewChanges(changes);
@@ -208,6 +263,50 @@ try {
   );
   assert.equal(published.succeeded[0]?.status, 'published');
   const publishedDetails = await publisher.getPost(published.succeeded[0].id);
+  const audit = await publisher.auditContent([
+    { type: 'post', id: publishedDetails.id, updated_at: publishedDetails.updated_at },
+  ]);
+  assert.equal(audit.audits[0]?.lexical_parseable, true);
+  const health = await publisher.checkSiteHealth({
+    posts: [{ id: publishedDetails.id, updated_at: publishedDetails.updated_at }],
+  });
+  assert.match(health.site.ghost_version, /^[56]\./);
+  for (const code of [
+    'SITE_HOMEPAGE_HTTP',
+    'SITE_SITEMAP_HTTP',
+    'TARGET_PUBLIC_HTTP',
+    'TARGET_TITLE_MARKER',
+    'TARGET_CANONICAL_MATCH',
+    'FEATURE_IMAGE_HTTP',
+    'FEATURE_IMAGE_CONTENT_TYPE',
+  ]) {
+    assert.equal(health.checks.some((check) => check.code === code && check.result === 'pass'), true, `${code} did not pass`);
+  }
+
+  const fixture = await startShareFixture(publishedDetails);
+  fixtureServer = fixture.server;
+  const missingPortalDoctor = new GhostPublisher({
+    ...config,
+    publicPostUrlTemplate: `${fixture.base}/missing/{slug}`,
+  });
+  const missingPortal = await missingPortalDoctor.checkSiteHealth({
+    posts: [{ id: publishedDetails.id, updated_at: publishedDetails.updated_at }],
+  });
+  assert.equal(
+    missingPortal.checks.some((check) =>
+      check.code === 'SHARE_PORTAL_PREREQUISITE_MISSING' && check.surface === 'delivery' && check.result === 'warning'),
+    true,
+  );
+  const routeDoctor = new GhostPublisher({
+    ...config,
+    publicPostUrlTemplate: `${fixture.base}/route/{slug}.html`,
+  });
+  const routeReport = await routeDoctor.checkSiteHealth({
+    posts: [{ id: publishedDetails.id, updated_at: publishedDetails.updated_at }],
+  });
+  const routeFinding = routeReport.checks.some((check) => check.code === 'ROUTE_EXTENSION_404_GHOST6');
+  assert.equal(routeFinding, String(process.env.GHOST_IMAGE).includes('ghost:6'));
+  await verifyShareBrowsers(publishedDetails, fixture.base);
   const optimizedReceipt = await applyExact([
     {
       target: { type: 'post', id: publishedDetails.id, updated_at: publishedDetails.updated_at },
@@ -287,6 +386,7 @@ try {
   assert.equal(unpublishedPage.succeeded[0]?.status, 'draft');
   console.log(`Ghost ${process.env.GHOST_IMAGE ?? ''} integration passed`);
 } finally {
+  if (fixtureServer) await new Promise((resolve, reject) => fixtureServer.close((error) => error ? reject(error) : resolve()));
   if (createdPage) await api.pages.delete({ id: createdPage.id });
   if (created) await api.posts.delete({ id: created.id });
   await rm(uploadRoot, { recursive: true, force: true });

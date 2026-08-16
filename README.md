@@ -7,13 +7,13 @@
 [![GitHub release](https://img.shields.io/github/v/release/BoraGkc/ghost-publisher-mcp.svg)](https://github.com/BoraGkc/ghost-publisher-mcp/releases/latest)
 [![CI](https://github.com/BoraGkc/ghost-publisher-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/BoraGkc/ghost-publisher-mcp/actions/workflows/ci.yml)
 
-An unofficial, local-first MCP server for creating and managing Ghost posts and Pages, scheduling posts, uploading images, publishing approved batches, triggering static-site rebuilds, and verifying rendered content.
+An unofficial, local-first MCP server for creating and managing Ghost posts and Pages, diagnosing publication readiness, scheduling posts, uploading images, publishing approved batches, triggering static-site rebuilds, and verifying rendered content.
 
 Ghost Publisher exposes a bounded editorial surface instead of mirroring the full Ghost Admin API. It has no delete, member, newsletter-send, theme, arbitrary-query, remote HTTP, OAuth, or built-in AI billing surface.
 
 > This project is not affiliated with or endorsed by the Ghost Foundation.
 
-> Current npm and official MCP Registry release: `0.9.0`, published on 2026-08-16.
+> Current npm and official MCP Registry release: `0.10.0`, published on 2026-08-16.
 
 On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for redacted reports and never include an Admin key.
 
@@ -42,7 +42,7 @@ The installer prompts once for the Ghost Admin API key without echoing it, detec
 For CI or automation, inject the key into an environment variable through the platform's secret manager rather than typing it into the command or passing it as an argument:
 
 ```bash
-npx -y ghost-publisher-mcp@0.9.0 setup \
+npx -y ghost-publisher-mcp@0.10.0 setup \
   --url https://your-ghost.example.com \
   --client codex \
   --key-env GHOST_SETUP_KEY \
@@ -59,7 +59,7 @@ For optional deployment, upload, live-check, and read-only settings, the equival
 ```toml
 [mcp_servers.ghost-publisher]
 command = "npx"
-args = ["-y", "ghost-publisher-mcp@0.9.0"]
+args = ["-y", "ghost-publisher-mcp@0.10.0"]
 env = { GHOST_URL = "https://your-ghost.example.com", GHOST_ADMIN_API_KEY = "your_id:your_secret", GHOST_PERMISSION_PROFILE = "publisher", GHOST_UPLOAD_ROOTS = "/absolute/path/to/blog-assets", GHOST_DEPLOY_HOOK_URL = "https://your-host.example.com/deploy-hook", GHOST_PUBLIC_POST_URL_TEMPLATE = "https://your-site.example.com/posts/{slug}", GHOST_PUBLIC_PAGE_URL_TEMPLATE = "https://your-site.example.com/{slug}" }
 ```
 
@@ -74,7 +74,7 @@ Add a stdio server to the client's MCP JSON configuration:
   "mcpServers": {
     "ghost-publisher": {
       "command": "npx",
-      "args": ["-y", "ghost-publisher-mcp@0.9.0"],
+      "args": ["-y", "ghost-publisher-mcp@0.10.0"],
       "env": {
         "GHOST_URL": "https://your-ghost.example.com",
         "GHOST_ADMIN_API_KEY": "your_id:your_secret",
@@ -129,7 +129,8 @@ The server does not read `.env` files itself. Supply variables through the MCP c
 | `list_authors` | Search bounded public author identity fields without exposing staff email, roles, permissions, or settings. |
 | `list_pages` | List/search Pages with bounded status, date, order, and pagination fields. |
 | `get_page` | Read one Page by exact ID or slug with content and metadata. |
-| `audit_content` | Mechanically inspect up to 25 exact posts/Pages for Lexical inventory, missing alt/metadata, lengths, links, and Sources/Kaynaklar headings; never crawls or scores quality. |
+| `audit_content` | Mechanically inspect up to 25 exact posts/Pages and return backward-compatible inventory plus deterministic content, structure, accessibility, card, link, citation, metadata, and media findings; never crawls or scores quality. |
+| `check_site_health` | Read-only checks of server-derived Ghost and delivery homepages, sitemaps, up to five exact published posts/Pages, rendered titles/canonicals/share prerequisites, and Ghost-returned feature images. |
 | `plan_schedule` | Convert an ordered draft list from an IANA local time to exact UTC timestamps and return a site/revision-bound HMAC plan without writing. |
 | `create_drafts` | Create up to 10 posts from Markdown or bounded native headings, paragraphs, lists, quotes, code blocks, uploaded-image cards, bookmarks, callouts, and buttons; prose supports inline bold, italic, code, and HTTP(S) links. Always draft-only. |
 | `create_page_drafts` | Create up to 10 Pages from the same bounded Markdown or native-block input; always draft-only. |
@@ -148,16 +149,17 @@ The server does not read `.env` files itself. Supply variables through the MCP c
 
 All successful calls return human-readable text and typed `structuredContent`.
 
-Permission profiles register exact capabilities: `read-only` exposes twelve read/audit/preview/planning tools; `draft-editor` adds draft creation, uploads, and approved change-set application; `scheduler` adds schedule/unschedule; `publisher` adds publish/unpublish, published metadata changes, deploy, and write-oriented prompts. `audit_content`, `preview_changes`, and `plan_schedule` remain read-only in every profile.
+Permission profiles register exact capabilities: `read-only` exposes thirteen read/audit/preview/planning tools; `draft-editor` adds draft creation, uploads, and approved change-set application; `scheduler` adds schedule/unschedule; `publisher` adds publish/unpublish, published metadata changes, deploy, and write-oriented prompts. `audit_content`, `check_site_health`, `preview_changes`, and `plan_schedule` remain read-only in every profile.
 
 ## Prompts
 
-Normal mode exposes two zero-argument, user-invoked MCP prompts for clients that support prompt discovery:
+Publisher mode exposes two write-oriented zero-argument prompts, and every permission profile exposes the read-oriented Publication Doctor prompt:
 
 - `ghost_safe_publish` reviews one exact batch of either posts or Pages, obtains approval for the named transitions and one automatic deployment, publishes once, and performs bounded read-only live checks.
 - `ghost_seo_optimize` prepares one evidence-backed metadata patch for one published post, obtains approval for that patch and one separate deployment, verifies the unchanged body, and performs bounded read-only live checks.
+- `ghost_publication_doctor` composes exact content audits and bounded public-surface checks, separates confirmed, heuristic, and unavailable evidence, and reuses signed preview/apply only for separately approved draft-safe remediation.
 
-Read-only mode advertises no prompts because both workflows lead to write tools. The prompts add no resources, remote transport, persistent approval state, or automatic write retries.
+Read-only mode advertises only `ghost_publication_doctor` and stops before remediation. The prompts add no resources, remote transport, persistent approval state, or automatic write retries. See the [Publication Doctor guide](docs/publication-doctor.md) for copy-ready flows and diagnostic limits.
 
 ## Image generation
 
@@ -229,7 +231,7 @@ The [Ortak Alan case study](https://github.com/BoraGkc/ghost-publisher-mcp/blob/
 - Native image cards accept only exact URLs returned by `upload_image` in the current server session. Native bookmarks accept caller-supplied HTTP(S) metadata and never fetch the target URL.
 - Callers cannot supply arbitrary upload or deploy URLs.
 - Configured URLs reject embedded credentials. Public URL templates permit exactly one `{slug}` in the path, not the hostname.
-- Ghost-returned Page URLs are rejected when they resolve to private or loopback networks, except explicit localhost development. Live responses are capped at 2 MB.
+- Every server-derived public URL is revalidated immediately before use and rejected when it resolves to a private or loopback network, except explicit localhost development. Publication Doctor requests use GET only, never follow redirects, time out after 15 seconds, cap bodies at 2 MB, deduplicate URLs, allow at most 20 requests, and run at most four concurrently.
 - Deployment hooks do not follow redirects. Failures perform no automatic retry, return structured status without discarding completed transitions, and set the MCP result as an error.
 - The setup command never places the Ghost key in Codex process arguments, refuses symlinked client configurations, uses private file modes on POSIX, and rolls back multi-client failures.
 - API keys, JWTs, hook paths/query strings, and generated bytes are never logged or returned.
@@ -255,9 +257,9 @@ Then add the local build to your MCP client:
 }
 ```
 
-Unit tests mock Ghost and never invoke an image-generation provider. The opt-in integration workflow uses disposable Ghost 5 and Ghost 6 containers, never the configured live site.
+Unit tests mock Ghost and never invoke an image-generation provider. The opt-in integration workflow uses disposable Ghost 5 and Ghost 6 containers plus Chromium, Firefox, and WebKit share fixtures, never the configured live site.
 
-See [ROADMAP.md](ROADMAP.md) for status, [the v0.6 trust controls](docs/plans/0.6-trust-controls.md), [v0.7 editorial workflow](docs/plans/0.7-editorial-workflow.md), [v0.8 native rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md), [the v0.9 native authoring plan](docs/plans/0.9-native-authoring.md), and [future interoperability](docs/plans/future-interoperability.md).
+See [ROADMAP.md](ROADMAP.md) for status, [the v0.6 trust controls](docs/plans/0.6-trust-controls.md), [v0.7 editorial workflow](docs/plans/0.7-editorial-workflow.md), [v0.8 native rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md), [the v0.9 native authoring plan](docs/plans/0.9-native-authoring.md), [the v0.10 Publication Doctor contract](docs/plans/0.10-publication-doctor.md), and [future interoperability](docs/plans/future-interoperability.md).
 
 ## License
 

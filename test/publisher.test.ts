@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '../src/config.js';
 import { GhostPublisher, slugify } from '../src/publisher.js';
+import { AUDIT_FINDING_CODES } from '../src/types.js';
 
 const temporary: string[] = [];
 const key = `${'a'.repeat(24)}:${'b'.repeat(64)}`;
@@ -481,6 +482,89 @@ describe('publishing service', () => {
     expect(JSON.stringify(result)).not.toMatch(/quality|truth|score/i);
   });
 
+  it('emits every staged audit finding deterministically and leaves a clean document clean', async () => {
+    const gallery = {
+      type: 'gallery',
+      images: [{ src: 'https://images.example.com/one.jpg', width: 800, height: 600, alt: 'One' }],
+    };
+    const problematic = post({
+      id: 'b'.repeat(24),
+      feature_image: 'https://images.example.com/feature.jpg',
+      feature_image_alt: null,
+      meta_title: 'Short',
+      meta_description: 'Brief',
+      canonical_url: null,
+      lexical: JSON.stringify({
+        root: {
+          type: 'root',
+          children: [
+            { type: 'extended-heading', tag: 'h2', children: [{ type: 'extended-text', text: 'Intro' }] },
+            { type: 'extended-heading', tag: 'h4', children: [] },
+            { type: 'paragraph', children: [{ type: 'extended-text', text: '한국어 starts here' }] },
+            { type: 'image', src: 'https://images.example.com/missing.jpg' },
+            { type: 'image', src: 'https://images.example.com/decorative.jpg', alt: '', caption: 'Caption' },
+            { type: 'toggle', children: [{ type: 'paragraph', children: [{ type: 'text', text: 'Toggle' }] }] },
+            gallery,
+            gallery,
+            { type: 'bookmark', url: '', metadata: { title: '' } },
+            { type: 'button', buttonText: '' },
+            { type: 'extended-link', url: 'javascript:alert(1)', children: [] },
+          ],
+        },
+      }),
+    });
+    const empty = post({ id: 'c'.repeat(24), lexical: '{"root":{"type":"root","children":[]}}' });
+    const invalid = post({ id: 'd'.repeat(24), lexical: '{' });
+    const clean = post({
+      id: 'e'.repeat(24),
+      feature_image: 'https://images.example.com/feature.jpg',
+      feature_image_alt: 'Descriptive alternative',
+      meta_title: 'A complete publication title for readers',
+      meta_description: 'A complete and useful publication description that stays inside the documented review range for metadata.',
+      canonical_url: 'https://ghost.example.com/clean/',
+      lexical: JSON.stringify({
+        root: {
+          type: 'root',
+          children: [
+            { type: 'paragraph', children: [{ type: 'extended-text', text: 'Useful body' }] },
+            { type: 'gallery', images: [{ src: 'one.jpg' }, { src: 'two.jpg' }] },
+            { type: 'gallery', images: [{ src: 'two.jpg' }, { src: 'one.jpg' }] },
+            { type: 'extended-heading', tag: 'h2', children: [{ type: 'extended-text', text: 'Sources' }] },
+            { type: 'extended-link', url: 'https://example.com/source', children: [{ type: 'extended-text', text: 'Source' }] },
+          ],
+        },
+      }),
+    });
+    const rows = new Map([problematic, empty, invalid, clean].map((row) => [row.id, row]));
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: { posts: { read: vi.fn(async ({ id }) => rows.get(id)) } },
+    });
+    const targets = [problematic, empty, invalid, clean].map((row) => ({
+      type: 'post' as const,
+      id: row.id,
+      updated_at: row.updated_at,
+    }));
+
+    const first = await publisher.auditContent(targets);
+    const second = await publisher.auditContent(targets);
+    const codes = new Set(first.audits.flatMap((audit) => audit.findings.map((finding) => finding.code)));
+
+    expect([...codes].sort()).toEqual([...AUDIT_FINDING_CODES].sort());
+    expect(first).toEqual(second);
+    expect(first.audits[3]?.findings).toEqual([]);
+    for (const finding of first.audits.flatMap((audit) => audit.findings)) {
+      expect(finding).toMatchObject({
+        code: expect.any(String),
+        severity: expect.stringMatching(/^(blocker|warning|info)$/),
+        certainty: expect.stringMatching(/^(confirmed|heuristic)$/),
+        message: expect.any(String),
+        evidence: expect.any(Object),
+        safe_fix: { available: expect.any(Boolean), reason: expect.any(String) },
+      });
+      expect(Object.prototype.hasOwnProperty.call(finding, 'ghost_issue')).toBe(true);
+    }
+  });
+
   it('plans Istanbul UTC timestamps and rejects ambiguous or missing local times', async () => {
     const current = post();
     const publisher = new GhostPublisher(baseConfig, {
@@ -669,7 +753,7 @@ describe('publishing service', () => {
     };
     const publisher = new GhostPublisher(
       { ...baseConfig, deployHookUrl: 'https://deploy.example.com/private?token=secret' },
-      { ghost, fetch: request },
+      { ghost, fetch: request, lookup: async () => [{ address: '93.184.216.34' }] },
     );
     const result = await publisher.transitionPosts(
       [
@@ -768,7 +852,7 @@ describe('publishing service', () => {
         deployHookUrl: 'https://deploy.example.com/hook',
         publicPostUrlTemplate: 'https://site.example.com/posts/{slug}',
       },
-      { ghost, fetch: request },
+      { ghost, fetch: request, lookup: async () => [{ address: '93.184.216.34' }] },
     );
 
     const result = await publisher.transitionPosts(
@@ -989,7 +1073,11 @@ describe('publishing service', () => {
     });
     const publisher = new GhostPublisher(
       { ...baseConfig, publicPageUrlTemplate: 'https://site.example.com/{slug}' },
-      { ghost: { pages: { read: vi.fn(async () => current) } }, fetch: request },
+      {
+        ghost: { pages: { read: vi.fn(async () => current) } },
+        fetch: request,
+        lookup: async () => [{ address: '93.184.216.34' }],
+      },
     );
 
     const checks = await publisher.checkLivePages([
@@ -1041,6 +1129,203 @@ describe('publishing service', () => {
     expect(ghostChecks[0]?.verified).toBe(true);
   });
 
+  it('checks Ghost, delivery, and feature-image surfaces separately without writing', async () => {
+    const current = post({
+      status: 'published',
+      title: 'Launch post',
+      slug: 'launch',
+      url: 'https://ghost.example.com/launch/',
+      feature_image: 'https://images.example.com/launch.png',
+      canonical_url: null,
+    });
+    const mutations = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+    const [edit, add, remove, upload] = mutations;
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void init;
+      const url = new URL(input.toString());
+      if (url.hostname === 'images.example.com') {
+        return new Response('', { status: 200, headers: { 'content-type': 'image/png', 'content-length': '1200' } });
+      }
+      if (url.pathname === '/sitemap.xml') {
+        return new Response('<?xml version="1.0"?><urlset/>', { status: 200, headers: { 'content-type': 'application/xml' } });
+      }
+      if (url.pathname === '/launch/' || url.pathname === '/posts/launch') {
+        const portal = url.hostname === 'ghost.example.com' ? '<script src="/public/portal.min.js"></script>' : '';
+        return new Response(
+          `<html><head><link rel="canonical" href="${url.toString()}"></head><body><h1>Launch post</h1><button data-ghost-share>Share</button>${portal}</body></html>`,
+          { status: 200, headers: { 'content-type': 'text/html' } },
+        );
+      }
+      return new Response('<html><body>Home</body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    });
+    const publisher = new GhostPublisher(
+      { ...baseConfig, publicPostUrlTemplate: 'https://delivery.example.com/posts/{slug}' },
+      {
+        ghost: {
+          site: { read: vi.fn(async () => ({ title: 'Fixture', url: 'https://ghost.example.com/', version: '6.7.0' })) },
+          posts: { read: vi.fn(async () => current), edit, add, delete: remove },
+          images: { upload },
+        },
+        fetch: request,
+        lookup: async () => [{ address: '93.184.216.34' }],
+      },
+    );
+
+    const report = await publisher.checkSiteHealth({ posts: [{ id: current.id, updated_at: current.updated_at }] });
+    const targetChecks = report.checks.filter((check) => check.code === 'TARGET_PUBLIC_HTTP');
+
+    expect(targetChecks.map((check) => check.surface).sort()).toEqual(['delivery', 'ghost']);
+    expect(report.checks).toContainEqual(expect.objectContaining({ code: 'SHARE_PORTAL_PREREQUISITE_MISSING', surface: 'delivery', result: 'warning' }));
+    expect(report.checks).not.toContainEqual(expect.objectContaining({ code: 'SHARE_PORTAL_PREREQUISITE_MISSING', surface: 'ghost' }));
+    expect(report.checks).toContainEqual(expect.objectContaining({ code: 'FEATURE_IMAGE_HTTP', surface: 'media', result: 'pass' }));
+    expect(report.checks).toContainEqual(expect.objectContaining({ code: 'FEATURE_IMAGE_CONTENT_TYPE', result: 'pass' }));
+    expect(report.summary.unavailable).toBe(2);
+    expect(request).toHaveBeenCalledTimes(7);
+    for (const call of request.mock.calls) expect(call[1]).toMatchObject({ method: 'GET', redirect: 'manual' });
+    for (const mutation of mutations) expect(mutation).not.toHaveBeenCalled();
+  });
+
+  it('reports the controlled Ghost 6 extension-route fixture and never follows redirects', async () => {
+    const current = post({
+      status: 'published',
+      title: 'Legacy route',
+      slug: 'legacy.html',
+      url: 'https://ghost.example.com/legacy.html',
+    });
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void init;
+      const url = new URL(input.toString());
+      if (url.pathname === '/legacy.html') {
+        return new Response('', { status: 404, headers: { location: 'https://elsewhere.example.com/' } });
+      }
+      if (url.pathname === '/sitemap.xml') {
+        return new Response('<urlset/>', { status: 200, headers: { 'content-type': 'text/xml' } });
+      }
+      return new Response('Home', { status: 200, headers: { 'content-type': 'text/html' } });
+    });
+    const publisher = new GhostPublisher(baseConfig, {
+      ghost: {
+        site: { read: vi.fn(async () => ({ title: 'Ghost 6', url: baseConfig.ghostUrl, version: '6.0.0' })) },
+        posts: { read: vi.fn(async () => current) },
+      },
+      fetch: request,
+      lookup: async () => [{ address: '93.184.216.34' }],
+    });
+
+    const report = await publisher.checkSiteHealth({ posts: [{ id: current.id, updated_at: current.updated_at }] });
+
+    expect(report.checks).toContainEqual(expect.objectContaining({ code: 'ROUTE_EXTENSION_404_GHOST6', result: 'fail' }));
+    expect(JSON.stringify(report)).not.toContain('elsewhere.example.com');
+    expect(request.mock.calls.find(([url]) => String(url).endsWith('/legacy.html'))?.[1]).toMatchObject({ redirect: 'manual' });
+  });
+
+  it('enforces site-health target, request, DNS, size, and concurrency bounds', async () => {
+    const rows = new Map(
+      Array.from({ length: 5 }, (_, index) => {
+        const id = String(index + 1).repeat(24);
+        return [id, post({ id, status: 'published', slug: `post-${index}`, url: `https://ghost.example.com/post-${index}/`, feature_image: `https://images.example.com/${index}.png` })];
+      }),
+    );
+    const targetRows = [...rows.values()];
+    const ceilingRequest = vi.fn();
+    const ceiling = new GhostPublisher(
+      {
+        ...baseConfig,
+        publicPostUrlTemplate: 'https://delivery.example.com/posts/{slug}',
+        publicPageUrlTemplate: 'https://pages.example.com/{slug}',
+      },
+      {
+        ghost: {
+          site: { read: vi.fn(async () => ({ title: 'Fixture', url: baseConfig.ghostUrl, version: '6.0.0' })) },
+          posts: { read: vi.fn(async ({ id }) => rows.get(id)) },
+        },
+        fetch: ceilingRequest,
+        lookup: async () => [{ address: '93.184.216.34' }],
+      },
+    );
+    const five = targetRows.map((row) => ({ id: row.id, updated_at: row.updated_at }));
+    await expect(ceiling.checkSiteHealth({ posts: five })).rejects.toThrow('twenty-request ceiling');
+    await expect(ceiling.checkSiteHealth({ posts: [...five, five[0]!] })).rejects.toThrow('at most five');
+    expect(ceilingRequest).not.toHaveBeenCalled();
+
+    const privateRequest = vi.fn();
+    const privatePublisher = new GhostPublisher(baseConfig, {
+      ghost: { site: { read: vi.fn(async () => ({ title: 'Private', url: 'https://private.example.com' })) } },
+      fetch: privateRequest,
+      lookup: async () => [{ address: '10.0.0.8' }],
+    });
+    await expect(privatePublisher.checkSiteHealth({})).rejects.toThrow('private or loopback');
+    expect(privateRequest).not.toHaveBeenCalled();
+
+    const credentialPublisher = new GhostPublisher(baseConfig, {
+      ghost: { site: { read: vi.fn(async () => ({ title: 'Credential', url: 'https://user:secret@public.example.com' })) } },
+      fetch: vi.fn(),
+      lookup: async () => [{ address: '93.184.216.34' }],
+    });
+    await expect(credentialPublisher.checkSiteHealth({})).rejects.toThrow('must not contain credentials');
+
+    const redirectRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void init;
+      return new Response('', { status: String(input).endsWith('/sitemap.xml') ? 200 : 302, headers: { location: 'https://redirect.example.com/private' } });
+    });
+    const redirectPublisher = new GhostPublisher(baseConfig, {
+      ghost: { site: { read: vi.fn(async () => ({ title: 'Redirect', url: baseConfig.ghostUrl })) } },
+      fetch: redirectRequest,
+      lookup: async () => [{ address: '93.184.216.34' }],
+    });
+    const redirectReport = await redirectPublisher.checkSiteHealth({});
+    expect(redirectReport.checks).toContainEqual(expect.objectContaining({ code: 'SITE_HOMEPAGE_HTTP', result: 'fail' }));
+    expect(JSON.stringify(redirectReport)).not.toContain('redirect.example.com');
+    for (const call of redirectRequest.mock.calls) expect(call[1]).toMatchObject({ redirect: 'manual' });
+
+    const timeoutRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void input;
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      throw new DOMException('Timed out', 'TimeoutError');
+    });
+    const timeoutPublisher = new GhostPublisher(baseConfig, {
+      ghost: { site: { read: vi.fn(async () => ({ title: 'Timeout', url: baseConfig.ghostUrl })) } },
+      fetch: timeoutRequest,
+      lookup: async () => [{ address: '93.184.216.34' }],
+    });
+    const timeoutReport = await timeoutPublisher.checkSiteHealth({});
+    expect(timeoutReport.summary.unavailable).toBeGreaterThan(0);
+    expect(timeoutRequest).toHaveBeenCalledTimes(2);
+
+    const oversizedPublisher = new GhostPublisher(baseConfig, {
+      ghost: { site: { read: vi.fn(async () => ({ title: 'Large', url: baseConfig.ghostUrl })) } },
+      fetch: vi.fn(async () => new Response('', { status: 200, headers: { 'content-length': String(2 * 1024 * 1024 + 1) } })),
+      lookup: async () => [{ address: '93.184.216.34' }],
+    });
+    await expect(oversizedPublisher.checkSiteHealth({})).rejects.toThrow('2 MB');
+
+    let active = 0;
+    let maximum = 0;
+    const concurrent = new GhostPublisher(
+      { ...baseConfig, publicPostUrlTemplate: 'https://delivery.example.com/posts/{slug}' },
+      {
+        ghost: {
+          site: { read: vi.fn(async () => ({ title: 'Bounded', url: baseConfig.ghostUrl })) },
+          posts: { read: vi.fn(async () => targetRows[0]) },
+        },
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          active += 1;
+          maximum = Math.max(maximum, active);
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          active -= 1;
+          const xml = new URL(input.toString()).pathname === '/sitemap.xml';
+          return new Response(xml ? '<urlset/>' : '<html><head></head><body>Body</body></html>', {
+            status: 200,
+            headers: { 'content-type': xml ? 'application/xml' : 'text/html' },
+          });
+        }),
+        lookup: async () => [{ address: '93.184.216.34' }],
+      },
+    );
+    await concurrent.checkSiteHealth({ posts: [five[0]!] });
+    expect(maximum).toBeLessThanOrEqual(4);
+  });
+
   it('rejects Ghost-returned private page URLs before fetching', async () => {
     const request = vi.fn();
     const direct = new GhostPublisher(baseConfig, {
@@ -1050,7 +1335,7 @@ describe('publishing service', () => {
     const directResult = await direct.checkLivePages([
       { id: 'd'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
     ]);
-    expect(directResult[0]).toMatchObject({ verified: false, error: 'Ghost returned a private or loopback public page URL' });
+    expect(directResult[0]).toMatchObject({ verified: false, error: 'Public URL resolves to a private or loopback address' });
 
     const resolved = new GhostPublisher(baseConfig, {
       ghost: { pages: { read: vi.fn(async () => page({ status: 'published', url: 'https://internal.example/page' })) } },
@@ -1060,7 +1345,7 @@ describe('publishing service', () => {
     const resolvedResult = await resolved.checkLivePages([
       { id: 'd'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
     ]);
-    expect(resolvedResult[0]).toMatchObject({ verified: false, error: 'Ghost returned a private or loopback public page URL' });
+    expect(resolvedResult[0]).toMatchObject({ verified: false, error: 'Public URL resolves to a private or loopback address' });
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -1069,7 +1354,7 @@ describe('publishing service', () => {
     const postRequest = vi.fn(async () => new Response(oversized, { status: 200 }));
     const postPublisher = new GhostPublisher(
       { ...baseConfig, publicPostUrlTemplate: 'https://site.example.com/{slug}' },
-      { ghost: {}, fetch: postRequest },
+      { ghost: {}, fetch: postRequest, lookup: async () => [{ address: '93.184.216.34' }] },
     );
     const postResult = await postPublisher.checkLivePosts([{ slug: 'large', title: 'Large' }]);
     expect(postResult[0]).toMatchObject({ verified: false, error: 'Live response exceeds the 2 MB limit' });
@@ -1079,7 +1364,11 @@ describe('publishing service', () => {
     );
     const pagePublisher = new GhostPublisher(
       { ...baseConfig, publicPageUrlTemplate: 'https://site.example.com/{slug}' },
-      { ghost: { pages: { read: vi.fn(async () => page({ status: 'published' })) } }, fetch: pageRequest },
+      {
+        ghost: { pages: { read: vi.fn(async () => page({ status: 'published' })) } },
+        fetch: pageRequest,
+        lookup: async () => [{ address: '93.184.216.34' }],
+      },
     );
     const pageResult = await pagePublisher.checkLivePages([
       { id: 'd'.repeat(24), updated_at: '2026-01-01T00:00:00.000Z' },
