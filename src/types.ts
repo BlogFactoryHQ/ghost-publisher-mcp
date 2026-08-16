@@ -46,9 +46,42 @@ export type ImageAsset = {
   source: 'upload';
 };
 
+export type DraftInline = {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+  link?: string;
+};
+
+export type DraftRichText = string | DraftInline[];
+
 export type DraftBlock =
-  | { type: 'paragraph'; text: string }
-  | { type: 'heading'; text: string; level?: 2 | 3 }
+  | { type: 'paragraph'; text: DraftRichText }
+  | { type: 'heading'; text: DraftRichText; level?: 2 | 3 }
+  | { type: 'list'; items: DraftRichText[]; style?: 'bullet' | 'number'; start?: number }
+  | { type: 'quote'; text: DraftRichText }
+  | { type: 'codeblock'; code: string; language?: string; caption?: string }
+  | {
+      type: 'image';
+      src: string;
+      alt: string;
+      caption?: string;
+      title?: string;
+      width?: number;
+      height?: number;
+      card_width?: 'regular' | 'wide' | 'full';
+      href?: string;
+    }
+  | {
+      type: 'bookmark';
+      url: string;
+      title: string;
+      description?: string;
+      author?: string;
+      publisher?: string;
+      caption?: string;
+    }
   | {
       type: 'callout';
       text: string;

@@ -102,7 +102,27 @@ try {
       slug,
       blocks: [
         { type: 'heading', text: 'It works', level: 2 },
-        { type: 'paragraph', text: 'Native structured prose' },
+        {
+          type: 'paragraph',
+          text: [
+            { text: 'Native ' },
+            { text: 'bold', bold: true },
+            { text: ', italic', italic: true },
+            { text: ', code', code: true },
+            { text: ', and link', link: 'https://ghost.org/docs' },
+          ],
+        },
+        { type: 'list', style: 'number', start: 2, items: ['First item', [{ text: 'Second item', bold: true }]] },
+        { type: 'quote', text: [{ text: 'Native quote', italic: true }] },
+        { type: 'codeblock', code: 'const native = true;', language: 'javascript', caption: '**Code** sample' },
+        { type: 'image', src: image.url, alt: 'Integration pixel', caption: '**Uploaded** safely', card_width: 'wide' },
+        {
+          type: 'bookmark',
+          url: 'https://ghost.org/docs',
+          title: 'Ghost documentation',
+          description: 'Official Ghost developer documentation',
+          publisher: 'Ghost',
+        },
         { type: 'callout', text: '**Ghost-native** callout', emoji: '✅', color: 'green' },
         { type: 'button', text: 'Ghost docs', url: 'https://ghost.org/docs', alignment: 'left' },
       ],
@@ -149,11 +169,26 @@ try {
   assert.deepEqual(nativeChildren.map((node) => node.type), [
     'extended-heading',
     'paragraph',
+    'list',
+    'quote',
+    'codeblock',
+    'image',
+    'bookmark',
     'callout',
     'button',
   ]);
-  assert.equal(nativeChildren[2].backgroundColor, 'green');
-  assert.equal(nativeChildren[3].buttonUrl, 'https://ghost.org/docs');
+  assert.equal(nativeChildren[1].children[1].format, 1);
+  assert.equal(nativeChildren[1].children[2].format, 2);
+  assert.equal(nativeChildren[1].children[3].format, 16);
+  assert.equal(nativeChildren[1].children[4].type, 'link');
+  assert.equal(nativeChildren[2].children[0].value, 2);
+  assert.equal(nativeChildren[3].children[0].format, 2);
+  assert.equal(nativeChildren[4].language, 'javascript');
+  assert.equal(nativeChildren[5].src, image.url);
+  assert.equal(nativeChildren[5].cardWidth, 'wide');
+  assert.equal(nativeChildren[6].metadata.title, 'Ghost documentation');
+  assert.equal(nativeChildren[7].backgroundColor, 'green');
+  assert.equal(nativeChildren[8].buttonUrl, 'https://ghost.org/docs');
 
   const originalChildren = JSON.parse(draftDetails.lexical).root.children;
   const sectionReceipt = await applyExact([

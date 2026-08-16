@@ -34,6 +34,7 @@ import type {
   DraftBlock,
   DraftFields,
   DraftInput,
+  DraftRichText,
   ImageAsset,
   PageInput,
   PageRef,
@@ -176,11 +177,38 @@ type GhostFieldInput = Partial<DraftFields> & {
   blocks?: DraftBlock[];
 };
 
-function textNode(text: string) {
-  return { type: 'extended-text', version: 1, detail: 0, format: 0, mode: 'normal', style: '', text };
+function textNode(text: string, format = 0) {
+  return { type: 'extended-text', version: 1, detail: 0, format, mode: 'normal', style: '', text };
 }
 
-function proseNode(type: 'paragraph' | 'extended-heading', text: string, tag?: 'h2' | 'h3') {
+function blockUrl(value: string, label: string): string {
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`${label} must use HTTP or HTTPS`);
+  if (url.username || url.password) throw new Error(`${label} cannot contain embedded credentials`);
+  return url.toString();
+}
+
+function inlineNodes(value: DraftRichText) {
+  const runs = typeof value === 'string' ? [{ text: value }] : value;
+  return runs.map((run) => {
+    const format = (run.bold ? 1 : 0) | (run.italic ? 2 : 0) | (run.code ? 16 : 0);
+    const node = textNode(run.text, format);
+    if (!run.link) return node;
+    return {
+      type: 'link',
+      version: 1,
+      direction: 'ltr',
+      format: '',
+      indent: 0,
+      rel: null,
+      target: null,
+      url: blockUrl(run.link, 'Inline link URL'),
+      children: [node],
+    };
+  });
+}
+
+function proseNode(type: 'paragraph' | 'extended-heading' | 'quote', text: DraftRichText, tag?: 'h2' | 'h3') {
   return {
     type,
     version: 1,
@@ -188,21 +216,84 @@ function proseNode(type: 'paragraph' | 'extended-heading', text: string, tag?: '
     format: '',
     indent: 0,
     ...(tag ? { tag } : {}),
-    children: [textNode(text)],
+    children: inlineNodes(text),
   };
 }
 
-function blockUrl(value: string): string {
-  const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Button URL must use HTTP or HTTPS');
-  return url.toString();
-}
-
-function draftLexical(blocks: DraftBlock[]): string {
-  // ponytail: structured prose is plain text; add inline formatting or RTL detection only after a real pilot needs it.
+function draftLexical(blocks: DraftBlock[], uploadedImageUrls: ReadonlySet<string> = new Set()): string {
   const children = blocks.map((block) => {
     if (block.type === 'paragraph') return proseNode('paragraph', block.text);
     if (block.type === 'heading') return proseNode('extended-heading', block.text, `h${block.level ?? 2}`);
+    if (block.type === 'list') {
+      const style = block.style ?? 'bullet';
+      if (style === 'bullet' && block.start !== undefined) throw new Error('Only numbered lists accept start');
+      const start = block.start ?? 1;
+      return {
+        type: 'list',
+        version: 1,
+        direction: 'ltr',
+        format: '',
+        indent: 0,
+        listType: style,
+        start,
+        tag: style === 'number' ? 'ol' : 'ul',
+        children: block.items.map((item, index) => ({
+          type: 'listitem',
+          version: 1,
+          direction: 'ltr',
+          format: '',
+          indent: 0,
+          value: start + index,
+          children: inlineNodes(item),
+        })),
+      };
+    }
+    if (block.type === 'quote') return proseNode('quote', block.text);
+    if (block.type === 'codeblock') {
+      return {
+        type: 'codeblock',
+        version: 1,
+        code: block.code,
+        language: block.language ?? '',
+        caption: block.caption ? markdown.renderInline(block.caption) : '',
+      };
+    }
+    if (block.type === 'image') {
+      if (!uploadedImageUrls.has(block.src)) {
+        throw new Error('Image card src must come from upload_image in this server session');
+      }
+      if ((block.width === undefined) !== (block.height === undefined)) {
+        throw new Error('Image card width and height must be provided together');
+      }
+      return {
+        type: 'image',
+        version: 1,
+        src: block.src,
+        width: block.width ?? null,
+        height: block.height ?? null,
+        title: block.title ?? '',
+        alt: block.alt,
+        caption: block.caption ? markdown.renderInline(block.caption) : '',
+        cardWidth: block.card_width ?? 'regular',
+        href: block.href ? blockUrl(block.href, 'Image link URL') : '',
+      };
+    }
+    if (block.type === 'bookmark') {
+      return {
+        type: 'bookmark',
+        version: 1,
+        url: blockUrl(block.url, 'Bookmark URL'),
+        metadata: {
+          icon: '',
+          title: block.title,
+          description: block.description ?? '',
+          author: block.author ?? '',
+          publisher: block.publisher ?? '',
+          thumbnail: '',
+        },
+        caption: block.caption ? markdown.renderInline(block.caption) : '',
+      };
+    }
     if (block.type === 'callout') {
       return {
         type: 'callout',
@@ -216,29 +307,32 @@ function draftLexical(blocks: DraftBlock[]): string {
       type: 'button',
       version: 1,
       buttonText: block.text,
-      buttonUrl: blockUrl(block.url),
+      buttonUrl: blockUrl(block.url, 'Button URL'),
       alignment: block.alignment ?? 'center',
     };
   });
   return JSON.stringify({ root: { type: 'root', version: 1, direction: 'ltr', format: '', indent: 0, children } });
 }
 
-function validateDraftBodies(inputs: Array<{ markdown?: string; blocks?: DraftBlock[] }>): void {
+function validateDraftBodies(
+  inputs: Array<{ markdown?: string; blocks?: DraftBlock[] }>,
+  uploadedImageUrls: ReadonlySet<string>,
+): void {
   if (inputs.some((input) => (input.markdown === undefined) === (input.blocks === undefined))) {
     throw new Error('Every draft needs exactly one of markdown or blocks');
   }
   if (inputs.some((input) => input.blocks?.length === 0)) throw new Error('Draft blocks cannot be empty');
   for (const input of inputs) {
-    if (input.blocks) draftLexical(input.blocks);
+    if (input.blocks) draftLexical(input.blocks, uploadedImageUrls);
   }
 }
 
-function ghostFields(input: GhostFieldInput): Record<string, unknown> {
+function ghostFields(input: GhostFieldInput, uploadedImageUrls?: ReadonlySet<string>): Record<string, unknown> {
   return {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.slug !== undefined ? { slug: input.slug } : {}),
     ...(input.markdown !== undefined ? { html: markdown.render(input.markdown) } : {}),
-    ...(input.blocks !== undefined ? { lexical: draftLexical(input.blocks) } : {}),
+    ...(input.blocks !== undefined ? { lexical: draftLexical(input.blocks, uploadedImageUrls) } : {}),
     ...(input.tags !== undefined ? { tags: input.tags.map((name) => ({ name })) } : {}),
     ...(input.authors !== undefined ? { authors: input.authors.map((id) => ({ id })) } : {}),
     ...(input.excerpt !== undefined ? { custom_excerpt: input.excerpt } : {}),
@@ -305,8 +399,8 @@ function uniqueScopes(scopes: ChangeScope[]): ChangeScope[] {
   return [...new Set(scopes)].sort();
 }
 
-function ghostDraft(input: DraftInput & { slug: string }): Record<string, unknown> {
-  return { ...ghostFields(input), status: 'draft' };
+function ghostDraft(input: DraftInput & { slug: string }, uploadedImageUrls: ReadonlySet<string>): Record<string, unknown> {
+  return { ...ghostFields(input, uploadedImageUrls), status: 'draft' };
 }
 
 function safePublicUrl(value: string): string {
@@ -368,6 +462,7 @@ export class GhostPublisher {
   private readonly ghost: any;
   private readonly request: typeof fetch;
   private readonly resolveHost: (hostname: string) => Promise<{ address: string }[]>;
+  private readonly uploadedImageUrls = new Set<string>();
 
   constructor(
     readonly config: Config,
@@ -899,7 +994,7 @@ export class GhostPublisher {
 
   async createDrafts(inputs: DraftInput[]): Promise<BatchResult> {
     if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot create drafts');
-    validateDraftBodies(inputs);
+    validateDraftBodies(inputs, this.uploadedImageUrls);
     const prepared = inputs.map((input) => ({ ...input, slug: input.slug || slugify(input.title) }));
     if (prepared.some((input) => !input.slug)) throw new Error('Every draft needs a usable title or slug');
     if (new Set(prepared.map((input) => input.slug)).size !== prepared.length) {
@@ -916,8 +1011,8 @@ export class GhostPublisher {
     for (const input of prepared) {
       try {
         const created = input.blocks
-          ? await this.ghost.posts.add(ghostDraft(input))
-          : await this.ghost.posts.add(ghostDraft(input), { source: 'html' });
+          ? await this.ghost.posts.add(ghostDraft(input, this.uploadedImageUrls))
+          : await this.ghost.posts.add(ghostDraft(input, this.uploadedImageUrls), { source: 'html' });
         result.succeeded.push(postRef(created));
       } catch (error) {
         result.failed.push({ title: input.title, error: errorMessage(error, this.config) });
@@ -929,7 +1024,7 @@ export class GhostPublisher {
 
   async createPageDrafts(inputs: PageInput[]): Promise<BatchResult<PageRef>> {
     if (!canEditDraft(this.config)) throw new Error('The read-only permission profile cannot create drafts');
-    validateDraftBodies(inputs);
+    validateDraftBodies(inputs, this.uploadedImageUrls);
     const prepared = inputs.map((input) => ({ ...input, slug: input.slug || slugify(input.title) }));
     if (prepared.some((input) => !input.slug)) throw new Error('Every page needs a usable title or slug');
     if (new Set(prepared.map((input) => input.slug)).size !== prepared.length) {
@@ -945,7 +1040,7 @@ export class GhostPublisher {
     for (const input of prepared) {
       try {
         const created = input.blocks
-          ? await this.ghost.pages.add({ ...ghostFields(input), status: 'draft' })
+          ? await this.ghost.pages.add({ ...ghostFields(input, this.uploadedImageUrls), status: 'draft' })
           : await this.ghost.pages.add({ ...ghostFields(input), status: 'draft' }, { source: 'html' });
         result.succeeded.push(pageRef(created));
       } catch (error) {
@@ -1226,8 +1321,10 @@ export class GhostPublisher {
     form.append('file', buffer, { filename, contentType: type.mime, knownLength: buffer.byteLength });
     const uploaded = await this.ghost.images.upload(form);
     if (!uploaded?.url) throw new Error('Ghost returned no uploaded image URL');
+    const url = String(uploaded.url);
+    this.uploadedImageUrls.add(url);
     return {
-      url: String(uploaded.url),
+      url,
       mime_type: type.mime,
       bytes: buffer.byteLength,
       source: 'upload',

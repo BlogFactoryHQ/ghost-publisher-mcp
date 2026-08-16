@@ -158,7 +158,32 @@ describe('publishing service', () => {
         title: 'Native cards',
         blocks: [
           { type: 'heading', text: 'Native heading', level: 2 },
-          { type: 'paragraph', text: 'Editable prose' },
+          {
+            type: 'paragraph',
+            text: [
+              { text: 'Plain ' },
+              { text: 'bold', bold: true },
+              { text: ' italic', italic: true },
+              { text: ' code', code: true },
+              { text: ' link', link: 'https://ghost.org/docs', bold: true },
+            ],
+          },
+          {
+            type: 'list',
+            style: 'number',
+            start: 2,
+            items: ['First', [{ text: 'Second', italic: true }]],
+          },
+          { type: 'list', items: ['Bullet'] },
+          { type: 'quote', text: [{ text: 'Quoted', bold: true }] },
+          { type: 'codeblock', code: '<script></script>', language: 'javascript', caption: '**Example**' },
+          {
+            type: 'bookmark',
+            url: 'https://ghost.org/docs',
+            title: 'Ghost docs',
+            description: 'Documentation',
+            publisher: 'Ghost',
+          },
           { type: 'callout', text: '**Safe** <script>alert(1)</script>', emoji: '✅', color: 'green' },
           { type: 'button', text: 'Read more', url: 'https://ghost.org/docs', alignment: 'left' },
         ],
@@ -170,13 +195,37 @@ describe('publishing service', () => {
     const document = JSON.parse(String(add.mock.calls[0]?.[0]?.lexical));
     expect(document.root.children).toMatchObject([
       { type: 'extended-heading', tag: 'h2', children: [{ type: 'extended-text', text: 'Native heading' }] },
-      { type: 'paragraph', children: [{ type: 'extended-text', text: 'Editable prose' }] },
+      { type: 'paragraph' },
+      { type: 'list', listType: 'number', start: 2, tag: 'ol' },
+      { type: 'list', listType: 'bullet', start: 1, tag: 'ul' },
+      { type: 'quote' },
+      { type: 'codeblock', code: '<script></script>', language: 'javascript' },
+      { type: 'bookmark', url: 'https://ghost.org/docs' },
       { type: 'callout', calloutEmoji: '✅', backgroundColor: 'green' },
       { type: 'button', buttonText: 'Read more', buttonUrl: 'https://ghost.org/docs', alignment: 'left' },
     ]);
-    expect(document.root.children[2].calloutText).toContain('<strong>Safe</strong>');
-    expect(document.root.children[2].calloutText).toContain('&lt;script&gt;');
-    expect(document.root.children[2].calloutText).not.toContain('<script>');
+    expect(document.root.children[1].children).toMatchObject([
+      { type: 'extended-text', text: 'Plain ', format: 0 },
+      { type: 'extended-text', text: 'bold', format: 1 },
+      { type: 'extended-text', text: ' italic', format: 2 },
+      { type: 'extended-text', text: ' code', format: 16 },
+      { type: 'link', url: 'https://ghost.org/docs', children: [{ text: ' link', format: 1 }] },
+    ]);
+    expect(document.root.children[2].children).toMatchObject([
+      { type: 'listitem', value: 2, children: [{ text: 'First', format: 0 }] },
+      { type: 'listitem', value: 3, children: [{ text: 'Second', format: 2 }] },
+    ]);
+    expect(document.root.children[3].children).toMatchObject([
+      { type: 'listitem', value: 1, children: [{ text: 'Bullet', format: 0 }] },
+    ]);
+    expect(document.root.children[4].children).toMatchObject([{ text: 'Quoted', format: 1 }]);
+    expect(document.root.children[5].caption).toBe('<strong>Example</strong>');
+    expect(document.root.children[6]).toMatchObject({
+      metadata: { title: 'Ghost docs', description: 'Documentation', publisher: 'Ghost', icon: '', thumbnail: '' },
+    });
+    expect(document.root.children[7].calloutText).toContain('<strong>Safe</strong>');
+    expect(document.root.children[7].calloutText).toContain('&lt;script&gt;');
+    expect(document.root.children[7].calloutText).not.toContain('<script>');
   });
 
   it('rejects missing, duplicate, or unsafe structured draft bodies before Ghost access', async () => {
@@ -193,6 +242,16 @@ describe('publishing service', () => {
         { title: 'Unsafe URL', blocks: [{ type: 'button', text: 'Run', url: 'javascript:alert(1)' }] },
       ]),
     ).rejects.toThrow('HTTP or HTTPS');
+    await expect(
+      publisher.createDrafts([
+        { title: 'Unsafe link', blocks: [{ type: 'paragraph', text: [{ text: 'Run', link: 'javascript:alert(1)' }] }] },
+      ]),
+    ).rejects.toThrow('HTTP or HTTPS');
+    await expect(
+      publisher.createDrafts([
+        { title: 'External image', blocks: [{ type: 'image', src: 'https://example.com/image.png', alt: '' }] },
+      ]),
+    ).rejects.toThrow('must come from upload_image');
     expect(read).not.toHaveBeenCalled();
     expect(add).not.toHaveBeenCalled();
   });
@@ -1043,9 +1102,48 @@ describe('publishing service', () => {
     await writeFile(secret, png);
     await symlink(secret, escaped);
     const upload = vi.fn(async () => ({ url: 'https://ghost.example.com/content/images/valid.png' }));
-    const publisher = new GhostPublisher({ ...baseConfig, uploadRoots: [root] }, { ghost: { images: { upload } } });
+    const add = vi.fn(async (input: Record<string, unknown>) => post(input));
+    const publisher = new GhostPublisher(
+      { ...baseConfig, uploadRoots: [root] },
+      {
+        ghost: {
+          images: { upload },
+          posts: { read: vi.fn(async () => Promise.reject(new Error('404 Not Found'))), add },
+        },
+      },
+    );
 
-    await expect(publisher.uploadImage(valid)).resolves.toMatchObject({ source: 'upload', mime_type: 'image/png' });
+    const uploaded = await publisher.uploadImage(valid);
+    expect(uploaded).toMatchObject({ source: 'upload', mime_type: 'image/png' });
+    await expect(
+      publisher.createDrafts([
+        {
+          title: 'Image draft',
+          blocks: [
+            {
+              type: 'image',
+              src: uploaded.url,
+              alt: 'One pixel',
+              caption: '**Uploaded safely** <script>alert(1)</script>',
+              width: 1,
+              height: 1,
+              card_width: 'wide',
+              href: 'https://ghost.org',
+            },
+          ],
+        },
+      ]),
+    ).resolves.toMatchObject({ succeeded: [expect.objectContaining({ status: 'draft' })] });
+    expect(JSON.parse(String(add.mock.calls[0]?.[0]?.lexical)).root.children[0]).toMatchObject({
+      type: 'image',
+      src: uploaded.url,
+      alt: 'One pixel',
+      width: 1,
+      height: 1,
+      cardWidth: 'wide',
+      href: 'https://ghost.org/',
+    });
+    expect(JSON.parse(String(add.mock.calls[0]?.[0]?.lexical)).root.children[0].caption).toContain('&lt;script&gt;');
     await expect(publisher.uploadImage(escaped)).rejects.toThrow('outside GHOST_UPLOAD_ROOTS');
   });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 (Unreleased)
+
+- Add draft-only native lists, quotes, code blocks, uploaded-image cards, and bookmarks to the existing post and Page creation tools.
+- Add inline bold, italic, code, and HTTP(S) links to native prose without adding a general API dispatcher or new tools.
+- Require image-card URLs to come from the existing safe `upload_image` flow in the current server session; bookmark cards never fetch external metadata.
+
 ## 0.8.0 (2026-08-16)
 
 - Add draft-only native heading, paragraph, callout, and button blocks to the existing post and Page creation tools.

@@ -125,6 +125,10 @@ describe('MCP contract', () => {
       'plan_hash',
     );
     expect(tools.tools.map((tool) => tool.name)).not.toContain('update_draft');
+    const draftCreateSchema = JSON.stringify(tools.tools.find((tool) => tool.name === 'create_drafts')?.inputSchema);
+    for (const capability of ['list', 'quote', 'codeblock', 'image', 'bookmark', 'bold', 'italic', 'code', 'link']) {
+      expect(draftCreateSchema).toContain(capability);
+    }
     const pageCreateSchema = tools.tools.find((tool) => tool.name === 'create_page_drafts')?.inputSchema;
     expect(JSON.stringify(pageCreateSchema)).toContain('blocks');
     expect(JSON.stringify(pageCreateSchema)).not.toContain('tags');
@@ -506,6 +510,8 @@ describe('MCP contract', () => {
       { title: 'Missing' },
       { title: 'Duplicate', markdown: 'Body', blocks: [{ type: 'paragraph', text: 'Body' }] },
       { title: 'Unsafe', blocks: [{ type: 'button', text: 'Run', url: 'javascript:alert(1)' }] },
+      { title: 'Unsafe inline', blocks: [{ type: 'paragraph', text: [{ text: 'Run', link: 'javascript:alert(1)' }] }] },
+      { title: 'Credential link', blocks: [{ type: 'bookmark', url: 'https://user:pass@example.com', title: 'No' }] },
     ]) {
       const rejected = await client.callTool({ name: 'create_drafts', arguments: { posts: [draft] } });
       expect(rejected.isError).toBe(true);

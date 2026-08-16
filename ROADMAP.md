@@ -6,6 +6,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 
 | Horizon | Milestone | Status | Plan |
 | --- | --- | --- | --- |
+| Next | v0.9.0 native authoring gap | Implemented on `main`; release verification and publication remain | [0.9 Native authoring](docs/plans/0.9-native-authoring.md) |
 | Shipped | v0.8.0 native rich-card drafts | Published and verified on npm and the MCP Registry on 2026-08-16 | [0.8 Adoption and rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md) |
 | Shipped | v0.7.0 editorial workflow | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.7 Editorial workflow](docs/plans/0.7-editorial-workflow.md) |
 | Shipped | v0.6.0 trust controls | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.6 Trust controls](docs/plans/0.6-trust-controls.md) |
@@ -41,6 +42,7 @@ The npm package and official MCP Registry serve `0.8.0`. On 2026-08-16, ChatGPT 
 | P1 | Local schedule plans were not timezone-bound | Add proposal-only IANA conversion plus an HMAC-bound exact UTC plan | Released in v0.7.0 |
 | P1 | Release messaging can drift across npm, the MCP Registry, and GitHub Releases | Publish v0.8.0 as Latest and create future GitHub Releases only after the package and Registry jobs succeed | Closed on 2026-08-16 |
 | P1 | Current rich-card creation depends on HTML conversion or host-authored Lexical | Add bounded native blocks to the existing draft tools and prove Ghost 5/6 readback | Released in v0.8.0 |
+| P1 | The bounded native draft set lacks common authoring structures and inline marks | Add lists, quotes, code blocks, safe-upload image cards, bookmarks, and inline bold/italic/code/links without widening the tool surface | Implemented for v0.9.0; Ghost 5/6 release verification pending |
 | P1 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Released in v0.5.0 |
 
 ## Delivery order
@@ -52,7 +54,8 @@ The npm package and official MCP Registry serve `0.8.0`. On 2026-08-16, ChatGPT 
 5. Release messaging correction and current Codex compatibility evidence: complete.
 6. Bounded native rich-card draft pilot with disposable Ghost 5/6: complete.
 7. v0.8.0 native rich-card drafts: complete; maintainer acceptance replaced the proposed non-maintainer demo gate.
-8. Correct release defects with the next patch version; never overwrite published versions.
+8. v0.9.0 native authoring gap: implemented on `main`; run Ghost 5/6 release verification before publication.
+9. Correct release defects with the next patch version; never overwrite published versions.
 
 ## Non-goals
 

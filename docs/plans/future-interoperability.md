@@ -26,7 +26,7 @@ Retain the richer Codex optimizer skill. Do not add duplicate MCP resources whil
 
 - Add remote transport only for a hosted-user requirement backed by a threat model.
 - Add membership or newsletters only as a separate permission-scoped surface.
-- Add broader native card types or inline rich-text composition only after a concrete workflow and Ghost 5/6 round-trip fixtures prove preservation.
+- The bounded v0.9 native authoring set is implemented on `main`; keep any broader card types or arbitrary Lexical composition demand-gated and require Ghost 5/6 round-trip fixtures before release.
 - Revisit body search only after a real workflow defines strict pagination, payload, and latency limits.
 
 Deletion, tag administration, page scheduling, site administration, webhook modification, themes, users, roles, persistent approval state, automatic deployment retries, background scheduling, arbitrary NQL, databases, dashboards, telemetry, billing, and embedded AI providers remain outside this milestone.

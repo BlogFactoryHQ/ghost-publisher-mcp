@@ -90,11 +90,61 @@ const authorsSchema = z
 
 const nullableText = (max: number) => z.string().max(max).nullable();
 const nullableUrl = z.url().nullable();
-const httpUrl = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), 'Expected an HTTP(S) URL');
+const httpUrl = z.url().refine((value) => {
+  const url = new URL(value);
+  return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+}, 'Expected an HTTP(S) URL without embedded credentials');
+const draftInlineSchema = z.object({
+  text: z.string().min(1).max(10_000),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  code: z.boolean().optional(),
+  link: httpUrl.optional(),
+}).strict();
+const draftRichText = (max: number) => z.union([
+  z.string().min(1).max(max),
+  z.array(draftInlineSchema).min(1).max(100).refine(
+    (runs) => runs.reduce((total, run) => total + run.text.length, 0) <= max,
+    `Inline text must contain at most ${max} characters`,
+  ),
+]);
 
 const draftBlockSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('paragraph'), text: z.string().min(1).max(10_000) }).strict(),
-  z.object({ type: z.literal('heading'), text: z.string().min(1).max(500), level: z.union([z.literal(2), z.literal(3)]).optional() }).strict(),
+  z.object({ type: z.literal('paragraph'), text: draftRichText(10_000) }).strict(),
+  z.object({ type: z.literal('heading'), text: draftRichText(500), level: z.union([z.literal(2), z.literal(3)]).optional() }).strict(),
+  z.object({
+    type: z.literal('list'),
+    items: z.array(draftRichText(2_000)).min(1).max(50),
+    style: z.enum(['bullet', 'number']).optional(),
+    start: z.number().int().min(1).max(10_000).optional(),
+  }).strict(),
+  z.object({ type: z.literal('quote'), text: draftRichText(10_000) }).strict(),
+  z.object({
+    type: z.literal('codeblock'),
+    code: z.string().min(1).max(50_000),
+    language: z.string().max(50).regex(/^[a-z0-9_+#.-]*$/i).optional(),
+    caption: z.string().max(1_000).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('image'),
+    src: httpUrl,
+    alt: z.string().max(500),
+    caption: z.string().max(1_000).optional(),
+    title: z.string().max(500).optional(),
+    width: z.number().int().positive().max(100_000).optional(),
+    height: z.number().int().positive().max(100_000).optional(),
+    card_width: z.enum(['regular', 'wide', 'full']).optional(),
+    href: httpUrl.optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('bookmark'),
+    url: httpUrl,
+    title: z.string().min(1).max(500),
+    description: z.string().max(2_000).optional(),
+    author: z.string().max(500).optional(),
+    publisher: z.string().max(500).optional(),
+    caption: z.string().max(1_000).optional(),
+  }).strict(),
   z.object({
     type: z.literal('callout'),
     text: z.string().min(1).max(10_000),
@@ -587,7 +637,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
       'create_drafts',
       {
         title: 'Create Ghost drafts',
-        description: 'Create 1–10 posts as drafts from either Markdown or bounded native Ghost blocks. This tool cannot publish. Ordered tags preserve the primary tag.',
+        description: 'Create 1–10 posts as drafts from either Markdown or bounded native Ghost blocks, including formatted prose, lists, quotes, code, uploaded-image cards, and bookmarks. Image-card src values must come from upload_image in this server session. This tool cannot publish. Ordered tags preserve the primary tag.',
         inputSchema: z.object({ posts: z.array(draftSchema).min(1).max(10) }),
         outputSchema: batchSchema,
         annotations: write,
@@ -606,7 +656,7 @@ export function createServer(publisher: GhostPublisher): McpServer {
       'create_page_drafts',
       {
         title: 'Create Ghost page drafts',
-        description: 'Create 1–10 pages from either Markdown or bounded native Ghost blocks and always force draft status. Tags, authors, templates, code injection, and scheduling are unavailable.',
+        description: 'Create 1–10 pages from either Markdown or bounded native Ghost blocks and always force draft status. Image-card src values must come from upload_image in this server session. Tags, authors, templates, code injection, and scheduling are unavailable.',
         inputSchema: z.object({ pages: z.array(pageDraftSchema).min(1).max(10) }),
         outputSchema: pageBatchSchema,
         annotations: write,
