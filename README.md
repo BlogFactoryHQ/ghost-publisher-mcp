@@ -2,6 +2,11 @@
 
 **Write with your AI. Publish safely to Ghost.**
 
+[![npm version](https://img.shields.io/npm/v/ghost-publisher-mcp.svg)](https://www.npmjs.com/package/ghost-publisher-mcp)
+[![npm downloads](https://img.shields.io/npm/dw/ghost-publisher-mcp.svg)](https://www.npmjs.com/package/ghost-publisher-mcp)
+[![GitHub release](https://img.shields.io/github/v/release/BoraGkc/ghost-publisher-mcp.svg)](https://github.com/BoraGkc/ghost-publisher-mcp/releases/latest)
+[![CI](https://github.com/BoraGkc/ghost-publisher-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/BoraGkc/ghost-publisher-mcp/actions/workflows/ci.yml)
+
 An unofficial, local-first MCP server for creating and managing Ghost posts and Pages, scheduling posts, uploading images, publishing approved batches, triggering static-site rebuilds, and verifying rendered content.
 
 Ghost Publisher exposes a bounded editorial surface instead of mirroring the full Ghost Admin API. It has no delete, member, newsletter-send, theme, arbitrary-query, remote HTTP, OAuth, or built-in AI billing surface.
@@ -21,6 +26,10 @@ On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT deskto
 Create a custom integration in **Ghost Admin → Settings → Integrations**, then copy its Admin API key.
 
 ## One-command setup
+
+[Watch the silent 60-second setup tour (4K, 60 fps)](https://github.com/BoraGkc/ghost-publisher-mcp/releases/download/v0.8.0/setup-demo-60s.mp4).
+
+![Ghost Publisher one-command setup](https://raw.githubusercontent.com/BoraGkc/ghost-publisher-mcp/main/docs/assets/setup.png)
 
 Run this in a private terminal:
 
@@ -79,6 +88,19 @@ Add a stdio server to the client's MCP JSON configuration:
 ```
 
 Restart the client after changing its MCP configuration.
+
+## Direct comparison
+
+Ghost Publisher is the narrow, approval-gated option. The alternatives below intentionally expose broader Ghost administration or richer authoring surfaces; choose that breadth when you need it. The comparison reflects each project's public README on 2026-08-16.
+
+| Project | Primary boundary | Content input | Write controls | Deliberately broader surface |
+| --- | --- | --- | --- | --- |
+| **Ghost Publisher MCP** | Posts, Pages, images, schedules, bounded audits, and deploy/live checks | Markdown or native heading, paragraph, callout, and button blocks | Draft-first creation, permission profiles, revision checks, signed preview/apply, literal confirmation, no automatic write retry | None: deletion, members, newsletters, themes, arbitrary API calls, and remote transport are non-goals |
+| [MFYDev/ghost-mcp](https://github.com/MFYDev/ghost-mcp) | General Ghost administration | Post content through entity CRUD | Standard Ghost Admin operations | Posts, users, members, tiers, offers, newsletters, tags, invites, roles, and webhooks, including deletion |
+| [jgardner04/Ghost-MCP-Server](https://github.com/jgardner04/Ghost-MCP-Server) | 34 tools across seven resource types | HTML for posts and Pages | Standard create/update/delete tools | Tags, posts, Pages, members, newsletters, tiers, and site operations |
+| [damusix/ghost-mcp](https://github.com/damusix/ghost-mcp) | Full Ghost Admin/Content API dispatcher plus authoring helpers | Broad native Koenig blocks or direct API payloads | Content API read-only mode; Admin mode exposes full API actions | Members, newsletters, offers, tiers, users, webhooks, images, themes, site settings, and arbitrary supported actions |
+
+This table describes product scope, not an independent security ranking or benchmark.
 
 ## Configuration
 
@@ -183,6 +205,14 @@ deployment to the configured host. Then check that their public URLs are live.
 The AI client researches and writes. Ghost Publisher performs the CMS actions and enforces draft-first, version-checked publishing.
 
 For a reproducible setup-to-live-check walkthrough, use the [safe publishing demo](https://github.com/BoraGkc/ghost-publisher-mcp/blob/main/docs/safe-publish-demo.md).
+
+## Verified proof
+
+The [Ortak Alan case study](https://github.com/BoraGkc/ghost-publisher-mcp/blob/main/docs/case-study-ortakalan.md) records the maintainer-operated production setup, exact versions, read-only verification, and limitations. No production content was changed to create the proof.
+
+![v0.8.0 marked as the latest GitHub Release](https://raw.githubusercontent.com/BoraGkc/ghost-publisher-mcp/main/docs/assets/release-v0.8.0.png)
+
+![v0.8.0 Ghost 5 and Ghost 6 release workflow](https://raw.githubusercontent.com/BoraGkc/ghost-publisher-mcp/main/docs/assets/release-workflow.png)
 
 ## Safety model
 

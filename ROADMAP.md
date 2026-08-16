@@ -39,7 +39,7 @@ The npm package and official MCP Registry serve `0.8.0`. On 2026-08-16, ChatGPT 
 | P0 | Generic update tools could bypass a visible diff | Replace them with HMAC-bound preview/apply and exact scopes | Released in v0.6.0 |
 | P1 | Adding a source section could destroy rich cards | Add one HTML-card node and prove original children survive Ghost 5/6 round trips | Released in v0.7.0 |
 | P1 | Local schedule plans were not timezone-bound | Add proposal-only IANA conversion plus an HMAC-bound exact UTC plan | Released in v0.7.0 |
-| P1 | Release messaging can drift from npm/Registry state | Make release truth part of the patch-release checklist | Corrected after v0.7.0; automate only if drift recurs |
+| P1 | Release messaging can drift across npm, the MCP Registry, and GitHub Releases | Publish v0.8.0 as Latest and create future GitHub Releases only after the package and Registry jobs succeed | Closed on 2026-08-16 |
 | P1 | Current rich-card creation depends on HTML conversion or host-authored Lexical | Add bounded native blocks to the existing draft tools and prove Ghost 5/6 readback | Released in v0.8.0 |
 | P1 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Released in v0.5.0 |
 

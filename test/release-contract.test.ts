@@ -44,6 +44,17 @@ describe('release and documentation contracts', () => {
     expect(workflow.indexOf('npm run check')).toBeLessThan(workflow.indexOf('id-token: write'));
   });
 
+  it('creates the GitHub Release only after package publication succeeds', async () => {
+    const workflow = await readFile('.github/workflows/release.yml', 'utf8');
+
+    expect(workflow).toContain('github-release:\n    needs: publish');
+    expect(workflow).toContain('contents: write');
+    expect(workflow).toContain('gh release create "$GITHUB_REF_NAME"');
+    expect(workflow).toContain('--verify-tag');
+    expect(workflow).toContain('--generate-notes');
+    expect(workflow).toContain('--latest');
+  });
+
   it('pins third-party actions in non-release workflows', async () => {
     for (const path of ['.github/workflows/ci.yml', '.github/workflows/ghost-integration.yml']) {
       const workflow = await readFile(path, 'utf8');
