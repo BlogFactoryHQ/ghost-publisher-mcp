@@ -49,10 +49,11 @@ describe('release and documentation contracts', () => {
 
     expect(workflow).toContain('github-release:\n    needs: publish');
     expect(workflow).toContain('contents: write');
-    expect(workflow).toContain('gh release create "$GITHUB_REF_NAME"');
+    expect(workflow).toContain('gh release create "$RELEASE_TAG"');
     expect(workflow).toContain('--verify-tag');
-    expect(workflow).toContain('--generate-notes');
+    expect(workflow).toContain('--notes-file release-notes.md');
     expect(workflow).toContain('--latest');
+    expect(workflow).toContain('is already published; continuing the coordinated release');
   });
 
   it('pins third-party actions in non-release workflows', async () => {

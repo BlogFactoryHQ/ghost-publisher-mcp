@@ -50,6 +50,7 @@ describe('MCP contract', () => {
 
     expect(registryMetadata.version).toBe(packageMetadata.version);
     expect(registryMetadata.packages[0].version).toBe(packageMetadata.version);
+    expect(registryMetadata.description.length).toBeLessThanOrEqual(100);
     expect(client.getServerVersion()?.version).toBe(packageMetadata.version);
 
     await client.close();

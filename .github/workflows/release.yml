@@ -3,6 +3,15 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to resume after a partial publication
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 permissions:
   contents: read
@@ -53,7 +62,7 @@ jobs:
       - name: Verify release metadata
         run: |
           node -e "const p=require('./package.json'),s=require('./server.json'); if(p.mcpName!==s.name||p.version!==s.version||p.name!==s.packages[0].identifier||p.version!==s.packages[0].version) throw new Error('package.json and server.json must match')"
-          test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
       - run: npm pack
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -82,11 +91,17 @@ jobs:
         run: |
           package_file="$(find . -maxdepth 1 -name 'ghost-publisher-mcp-*.tgz' -print -quit)"
           test -n "$package_file"
-          test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
           tar --extract --to-stdout --gzip --file "$package_file" package/package.json | \
             node -e "const p=JSON.parse(require('fs').readFileSync(0,'utf8'));if(p.version!==require('./package.json').version)process.exit(1)"
       - name: Publish npm package with provenance
-        run: npm publish ./ghost-publisher-mcp-*.tgz --provenance --access public
+        run: |
+          release_version="$(node -p "require('./package.json').version")"
+          if test "$(npm view "ghost-publisher-mcp@${release_version}" version 2>/dev/null || true)" = "$release_version"; then
+            echo "ghost-publisher-mcp@${release_version} is already published; continuing the coordinated release"
+          else
+            npm publish ./ghost-publisher-mcp-*.tgz --provenance --access public
+          fi
       - name: Wait for npm availability
         run: |
           release_version="$(node -p "require('./package.json').version")"
@@ -137,8 +152,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           release_version="$(node -p "require('./package.json').version")"
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            --title "Ghost Publisher MCP v${release_version}" \
-            --generate-notes \
-            --latest
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release ${RELEASE_TAG} already exists"
+          else
+            awk -v heading="## ${release_version} " '
+              index($0, heading) == 1 { found=1; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md > release-notes.md
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "Ghost Publisher MCP v${release_version}" \
+              --notes-file release-notes.md \
+              --latest
+          fi
