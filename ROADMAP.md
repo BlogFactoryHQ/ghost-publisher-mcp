@@ -7,7 +7,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 | Horizon | Milestone | Status | Plan |
 | --- | --- | --- | --- |
 | Next | v0.9.0 native authoring gap | Implemented and Ghost 5/6 verified on `main`; publication remains | [0.9 Native authoring](docs/plans/0.9-native-authoring.md) |
-| Planned | v0.10.0 Ghost Publication Doctor | Detailed contract drafted; implementation has not started | [0.10 Ghost Publication Doctor](docs/plans/0.10-publication-doctor.md) |
+| Planned | v0.10.0 Ghost Publication Doctor | Detailed contract and sector-best surface/media/browser decisions approved; implementation has not started | [0.10 Ghost Publication Doctor](docs/plans/0.10-publication-doctor.md) |
 | Shipped | v0.8.0 native rich-card drafts | Published and verified on npm and the MCP Registry on 2026-08-16 | [0.8 Adoption and rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md) |
 | Shipped | v0.7.0 editorial workflow | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.7 Editorial workflow](docs/plans/0.7-editorial-workflow.md) |
 | Shipped | v0.6.0 trust controls | Published and verified on npm and the MCP Registry on 2026-08-02 | [0.6 Trust controls](docs/plans/0.6-trust-controls.md) |
@@ -44,7 +44,7 @@ The npm package and official MCP Registry serve `0.8.0`. On 2026-08-16, ChatGPT 
 | P1 | Release messaging can drift across npm, the MCP Registry, and GitHub Releases | Publish v0.8.0 as Latest and create future GitHub Releases only after the package and Registry jobs succeed | Closed on 2026-08-16 |
 | P1 | Current rich-card creation depends on HTML conversion or host-authored Lexical | Add bounded native blocks to the existing draft tools and prove Ghost 5/6 readback | Released in v0.8.0 |
 | P1 | The bounded native draft set lacks common authoring structures and inline marks | Add lists, quotes, code blocks, safe-upload image cards, bookmarks, and inline bold/italic/code/links without widening the tool surface | Implemented and Ghost 5/6 verified for v0.9.0; publication pending |
-| P1 | Ghost and headless publication failures are discovered after release or upgrade | Add bounded, read-only site diagnostics plus evidence-coded content preflight without arbitrary crawling or Ghost administration | Detailed v0.10.0 plan drafted; implementation not started |
+| P1 | Ghost and headless publication failures are discovered after release or upgrade | Inspect both surfaces separately, include safe feature-image evidence, and require real-browser share verification without arbitrary crawling or Ghost administration | Detailed v0.10.0 contract approved; implementation not started |
 | P1 | Optimizer workflow is Codex-specific | Add portable MCP prompts while retaining the richer Codex skill | Released in v0.5.0 |
 
 ## Delivery order
