@@ -31,7 +31,7 @@ The npm package and official MCP Registry serve `0.8.0`. On 2026-08-16, ChatGPT 
 | P1 | No read-only mode | Validate `GHOST_READ_ONLY`; hide all write tools when enabled | Released in v0.4.0 |
 | P1 | No scheduling or author assignment | Add bounded author and scheduling tools | Released in v0.4.0 |
 | P1 | Setup was client-specific and manual | Add one interactive local installer for Codex, Cursor, and Claude Desktop | Released in v0.4.0 |
-| P1 | Current client releases need ongoing smoke coverage | Last manual smoke: Codex CLI `0.145.0-alpha.18`, Cursor `3.12.17`, and Claude Desktop `1.22209.3` on 2026-07-21; repeat after client updates | Monitor |
+| P1 | Current client releases need ongoing smoke coverage | ChatGPT desktop `26.810.41047` and bundled Codex CLI `0.148.0-alpha.9` passed setup/read-only verification on 2026-08-16; current Cursor and Claude runtimes were unavailable | Monitor |
 | P1 | Draft body updates can lose Ghost structure | Block rich-body replacement and permit only proven structure-safe Lexical operations | Replacement guard released in v0.6.0; bounded operations released in v0.7.0 |
 | P2 | Patch semantics were incomplete | Add nullable draft fields and published feature-image replacement | Released in v0.4.0 |
 | P2 | Discovery was narrow | Add bounded author/date/order filters, not arbitrary NQL | Released in v0.4.0 |

@@ -10,7 +10,7 @@ Ghost Publisher exposes a bounded editorial surface instead of mirroring the ful
 
 > Current npm and official MCP Registry release: `0.8.0`, published on 2026-08-16.
 
-On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the client compatibility issue form for redacted reports and never include an Admin key.
+On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for redacted reports and never include an Admin key.
 
 ## Requirements
 
@@ -226,7 +226,7 @@ Then add the local build to your MCP client:
 
 Unit tests mock Ghost and never invoke an image-generation provider. The opt-in integration workflow uses disposable Ghost 5 and Ghost 6 containers, never the configured live site.
 
-See [ROADMAP.md](ROADMAP.md) for status, [the v0.6 trust controls](docs/plans/0.6-trust-controls.md), [v0.7 editorial workflow](docs/plans/0.7-editorial-workflow.md), and [future interoperability](docs/plans/future-interoperability.md).
+See [ROADMAP.md](ROADMAP.md) for status, [the v0.6 trust controls](docs/plans/0.6-trust-controls.md), [v0.7 editorial workflow](docs/plans/0.7-editorial-workflow.md), [v0.8 native rich drafts](docs/plans/0.8-adoption-and-rich-drafts.md), and [future interoperability](docs/plans/future-interoperability.md).
 
 ## License
 
