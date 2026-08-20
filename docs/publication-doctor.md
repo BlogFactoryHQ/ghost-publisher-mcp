@@ -27,6 +27,16 @@ crawl links, change published bodies, publish, deploy, edit routes/themes, or cl
 
 `check_site_health` accepts only `posts` and `pages`, each containing an exact Ghost `id` and `updated_at`; callers cannot provide a URL, host, path, header, method, or redirect policy. The combined target limit is five. Requests use server-derived URLs, GET only, no redirects or retries, a 15-second timeout, a 2 MB response limit, a 20-request ceiling after deduplication, and at most four concurrent requests.
 
+## Act on the result
+
+| Evidence | Next action |
+| --- | --- |
+| `confirmed` finding | For a draft, show the smallest eligible change through `preview_changes` and wait for explicit approval. For a published record, report the evidence and stop unless a separately approved published-metadata change is in scope. |
+| `heuristic` finding | Review it manually; it is not proof of a defect. |
+| `unavailable` finding | Run only the stated follow-up. `SHARE_INTERACTION_UNVERIFIED` requires a real browser check and does not mean sharing is broken. |
+
+The Doctor never treats a successful HTTP response, a static share marker, or an absent finding as a quality, accessibility, SEO, or Ghost-core certification.
+
 ## Copy-ready support evidence
 
 Review and redact this template before sharing it publicly:

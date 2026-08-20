@@ -161,6 +161,12 @@ Publisher mode exposes two write-oriented zero-argument prompts, and every permi
 
 Read-only mode advertises only `ghost_publication_doctor` and stops before remediation. The prompts add no resources, remote transport, persistent approval state, or automatic write retries. See the [Publication Doctor guide](docs/publication-doctor.md) for copy-ready flows and diagnostic limits.
 
+### Fastest first Doctor run
+
+Set `GHOST_PERMISSION_PROFILE=read-only`, then use `list_posts` or `list_pages` to select up to five exact published records. Invoke `ghost_publication_doctor` with their names and ask it to resolve the returned `id` and `updated_at` values before running `check_site_health`.
+
+Treat results by certainty: fix `confirmed` findings only through a separately approved preview; review `heuristic` findings manually; and perform the named follow-up for `unavailable` evidence. In particular, `SHARE_INTERACTION_UNVERIFIED` needs a real browser check—it is not a reported sharing failure. The full copy-ready requests and redaction guidance are in the [Publication Doctor guide](docs/publication-doctor.md).
+
 ## Image generation
 
 Ghost Publisher does not need a second image API key. Codex, Claude, or another host AI generates the image with its own available capability, saves the result inside `GHOST_UPLOAD_ROOTS`, and calls `upload_image`. That exact returned URL can be used as an image-card `src` during the same server session. Arbitrary image URLs are rejected; after a restart, upload the local file again. The returned URL can also be used for an approved feature-image `update_fields` change-set.
