@@ -17,6 +17,12 @@ Ghost Publisher exposes a bounded editorial surface instead of mirroring the ful
 
 On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for redacted reports and never include an Admin key.
 
+## Proven in a daily publishing workflow
+
+[Ortak Alan](https://ortakalan.io/search/) uses Ghost Publisher in its maintainer-operated daily workflow across a 336-piece public archive. The team creates drafts, corrects metadata, uploads images, publishes approved batches, deploys once, and verifies the live result—at a reported cadence of five to six posts a day.
+
+The manual version of that path took roughly 30 minutes per post. The operator now completes reviewed batches in minutes without dropping draft-first creation or public-result checks. During this publishing period, Search Console recorded 652 clicks and 65,000 impressions over three months; its latest captured 28-day view showed 500 clicks (+294%) and 51,900 impressions (+369%). This is operational outcome evidence, not a claim that this MCP alone caused organic growth. Read the [full Ortak Alan case study](docs/case-study-ortakalan.md).
+
 ## Requirements
 
 - Node.js 22 or newer
@@ -54,7 +60,13 @@ Use `--permission read-only|draft-editor|scheduler|publisher` to enforce a capab
 
 Ghost Publisher runs locally so the Ghost Admin key is not entrusted to another hosted service. An OpenSEO-style hosted connection would require a separately threat-modeled credential service and remains on the [future roadmap](docs/plans/future-interoperability.md).
 
-For optional deployment, upload, live-check, and read-only settings, the equivalent full Codex configuration is:
+## Manual client configuration
+
+Use these only when you do not want the installer to update the local client configuration. Keep the file containing your Ghost Admin key private and restart the client after editing it.
+
+### Codex
+
+Add this to your user-level Codex configuration:
 
 ```toml
 [mcp_servers.ghost-publisher]
@@ -65,9 +77,9 @@ env = { GHOST_URL = "https://your-ghost.example.com", GHOST_ADMIN_API_KEY = "you
 
 Keep this user-level file private and do not commit it. Setup uses the user-level client locations only; advanced settings remain manual.
 
-## Claude Desktop, Cursor, and other MCP clients
+### Claude Desktop
 
-Add a stdio server to the client's MCP JSON configuration:
+Add this server entry to Claude Desktop's MCP JSON configuration:
 
 ```json
 {
@@ -87,7 +99,36 @@ Add a stdio server to the client's MCP JSON configuration:
 }
 ```
 
-Restart the client after changing its MCP configuration.
+### Cursor
+
+Add this server entry to Cursor's MCP JSON configuration:
+
+```json
+{
+  "mcpServers": {
+    "ghost-publisher": {
+      "command": "npx",
+      "args": ["-y", "ghost-publisher-mcp@0.10.0"],
+      "env": {
+        "GHOST_URL": "https://your-ghost.example.com",
+        "GHOST_ADMIN_API_KEY": "your_id:your_secret",
+        "GHOST_PERMISSION_PROFILE": "publisher"
+      }
+    }
+  }
+}
+```
+
+For a cautious first connection, use `GHOST_PERMISSION_PROFILE=read-only`; change it only when you are ready to create drafts or publish.
+
+## Security and credentials
+
+- Ghost Publisher runs as a local stdio process. Your Ghost Admin key remains in your local MCP client configuration and is never sent to a Ghost Publisher-hosted service.
+- Do not paste keys into chats, issues, shell arguments, commits, screenshots, or forum posts. Use the interactive installer or your client’s local secret/configuration store.
+- Draft creation is always draft-only. Publishing, scheduling, applying a change set, unpublishing, and deployment require a separate explicit confirmation.
+- Start with the `read-only` permission profile and grant `draft-editor`, `scheduler`, or `publisher` only for the workflow you need.
+
+See the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for a redacted report template.
 
 ## Direct comparison
 
@@ -213,6 +254,8 @@ deployment to the configured host. Then check that their public URLs are live.
 The AI client researches and writes. Ghost Publisher performs the CMS actions and enforces draft-first, version-checked publishing.
 
 For a reproducible setup-to-live-check walkthrough, use the [safe publishing demo](https://github.com/BoraGkc/ghost-publisher-mcp/blob/main/docs/safe-publish-demo.md).
+
+For a 55-second product walkthrough—Markdown to SEO check, draft, and Ghost verification—use the [recording script](docs/publishing-demo-55s.md).
 
 ## Verified proof
 
