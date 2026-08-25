@@ -4,12 +4,28 @@ import { describe, expect, it } from 'vitest';
 describe('release and documentation contracts', () => {
   it('keeps the packaged README aligned with the package version', async () => {
     const readme = await readFile('README.md', 'utf8');
-    const packageMetadata = JSON.parse(await readFile('package.json', 'utf8')) as { version: string };
+    const packageMetadata = JSON.parse(await readFile('package.json', 'utf8')) as {
+      mcpName: string;
+      repository: { url: string };
+      version: string;
+    };
+    const serverMetadata = JSON.parse(await readFile('server.json', 'utf8')) as {
+      name: string;
+      repository: { url: string };
+    };
 
     expect(readme).toContain(`Current npm and official MCP Registry release: \`${packageMetadata.version}\``);
     expect(readme).toContain(`ghost-publisher-mcp@${packageMetadata.version}`);
     expect(readme).not.toContain('ghost-publisher-mcp@0.7.0');
     expect(readme).not.toContain('Use the published `0.1.1` release now');
+    expect(packageMetadata.mcpName).toBe('io.github.BlogFactoryHQ/ghost-publisher');
+    expect(packageMetadata.repository.url).toBe(
+      'git+https://github.com/BlogFactoryHQ/ghost-publisher-mcp.git',
+    );
+    expect(serverMetadata.name).toBe(packageMetadata.mcpName);
+    expect(serverMetadata.repository.url).toBe(
+      'https://github.com/BlogFactoryHQ/ghost-publisher-mcp',
+    );
   });
 
   it('keeps the README publish example on the single automatic deployment path', async () => {

@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.BoraGkc/ghost-publisher",
+  "name": "io.github.BlogFactoryHQ/ghost-publisher",
   "description": "Local-first MCP server for safe Ghost authoring, diagnostics, scheduling, and publishing.",
   "repository": {
-    "url": "https://github.com/BoraGkc/ghost-publisher-mcp",
+    "url": "https://github.com/BlogFactoryHQ/ghost-publisher-mcp",
     "source": "github"
   },
-  "version": "0.10.0",
+  "version": "0.10.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "ghost-publisher-mcp",
-      "version": "0.10.0",
+      "version": "0.10.1",
       "transport": {
         "type": "stdio"
       },

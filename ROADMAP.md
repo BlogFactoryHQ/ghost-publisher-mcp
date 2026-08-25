@@ -19,7 +19,7 @@ This file is the authoritative Now/Next/Later index. Detailed milestone plans ow
 | Shipped | v0.4.0 safe Pages vertical | Published and verified on 2026-07-21 | [0.4 Pages](docs/plans/0.4-pages.md) |
 | Demand-gated | Broader interoperability | No committed release beyond portable prompts | [Future interoperability](docs/plans/future-interoperability.md) |
 
-The npm package and official MCP Registry serve `0.10.0`. On 2026-08-16, ChatGPT desktop `26.810.41047` and bundled Codex CLI `0.148.0-alpha.9` passed discovery, redacted setup dry-run, and a read-only connection check against Ghost `6.42`. Cursor and Claude configuration targets were detected from local configuration directories, but current application runtimes were unavailable and remain unverified.
+The npm package and official MCP Registry serve `0.10.1`. On 2026-08-16, ChatGPT desktop `26.810.41047` and bundled Codex CLI `0.148.0-alpha.9` passed discovery, redacted setup dry-run, and a read-only connection check against Ghost `6.42`. Cursor and Claude configuration targets were detected from local configuration directories, but current application runtimes were unavailable and remain unverified.
 
 ## Gap register
 
@@ -27,7 +27,7 @@ The npm package and official MCP Registry serve `0.10.0`. On 2026-08-16, ChatGPT
 | --- | --- | --- | --- |
 | P0 | The immutable v0.4.0 npm README retained prerelease wording | Publish corrected documentation as the next patch rather than overwriting v0.4.0 | Closed in v0.4.1 |
 | P0 | `0.2.0` was not published separately | Ship the completed milestone contracts together in the next immutable release | Closed in v0.4.0 |
-| P0 | Roadmap and implementation branches were unmerged | Merge PR [#8](https://github.com/BoraGkc/ghost-publisher-mcp/pull/8) and PR [#7](https://github.com/BoraGkc/ghost-publisher-mcp/pull/7) | Closed in v0.4.0 |
+| P0 | Roadmap and implementation branches were unmerged | Merge PR [#8](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/pull/8) and PR [#7](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/pull/7) | Closed in v0.4.0 |
 | P0 | Deployment behavior contradicted documentation | Publish/unpublish deploy once after complete success; published metadata updates deploy only through a separate approved call; never retry writes | Released in v0.4.0 |
 | P1 | Approval was instructions-only | Require caller-attested literal confirmation at the schema boundary | Released in v0.4.0 |
 | P1 | No read-only mode | Validate `GHOST_READ_ONLY`; hide all write tools when enabled | Released in v0.4.0 |

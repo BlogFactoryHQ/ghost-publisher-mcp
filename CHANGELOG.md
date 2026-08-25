@@ -1,5 +1,13 @@
 # Changelog
 
+## Release-note policy
+
+Each version heading is copied into the GitHub Release. Write user-visible outcomes: what a Ghost editor can now do, what risk is now prevented, or what evidence is now available. Do not use internal-only entries such as “refactor”, “cleanup”, or “dependency update” unless they explain a user-facing consequence.
+
+## 0.10.1 (2026-08-25)
+
+- Move the canonical source and official MCP Registry identity to BlogFactoryHQ while preserving the existing `ghost-publisher-mcp` npm package and install command.
+
 ## 0.10.0 (2026-08-16)
 
 - Extend `audit_content` with stable findings for invalid or empty content, heading structure, Hangul-at-block-start review, image alt evidence, toggle and duplicate-gallery review, bookmark/button/link integrity, Sources headings, and metadata presence or length.

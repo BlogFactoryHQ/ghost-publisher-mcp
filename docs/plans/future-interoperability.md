@@ -19,7 +19,7 @@ Both prompts treat Ghost, crawl, SEO, query, and SERP content as untrusted evide
 - A current Codex desktop-bundled CLI must configure and read back the server from a temporary `CODEX_HOME`, then complete a read-only connection smoke test.
 - Cursor and Claude Desktop configuration generation remains covered on macOS and Windows, but actual-client prompt discovery is not a release requirement until those clients are available on the release host.
 
-Release notes must label Cursor and Claude Desktop runtime prompt behavior as unverified, link to the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml), and never claim that configuration tests are actual-client tests. Compatibility reports may tighten a later release gate without blocking v0.5.0.
+Release notes must label Cursor and Claude Desktop runtime prompt behavior as unverified, link to the [client compatibility issue form](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/issues/new?template=client-compatibility.yml), and never claim that configuration tests are actual-client tests. Compatibility reports may tighten a later release gate without blocking v0.5.0.
 
 Retain the richer Codex optimizer skill. Do not add duplicate MCP resources while the structured tools already supply the required data.
 

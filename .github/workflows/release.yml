@@ -129,7 +129,7 @@ jobs:
         run: |
           release_version="$(node -p "require('./package.json').version")"
           test "$(npm view "ghost-publisher-mcp@${release_version}" version)" = "$release_version"
-          registry_url="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.BoraGkc%2Fghost-publisher/versions/${release_version}"
+          registry_url="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.BlogFactoryHQ%2Fghost-publisher/versions/${release_version}"
           for attempt in $(seq 1 30); do
             if registry_json="$(curl --fail --silent --show-error "$registry_url" 2>/dev/null)" && \
               printf '%s' "$registry_json" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));if(d.server?.version!==process.argv[1])process.exit(1)" "$release_version"; then

@@ -4,8 +4,8 @@
 
 [![npm version](https://img.shields.io/npm/v/ghost-publisher-mcp.svg)](https://www.npmjs.com/package/ghost-publisher-mcp)
 [![npm downloads](https://img.shields.io/npm/dw/ghost-publisher-mcp.svg)](https://www.npmjs.com/package/ghost-publisher-mcp)
-[![GitHub release](https://img.shields.io/github/v/release/BoraGkc/ghost-publisher-mcp.svg)](https://github.com/BoraGkc/ghost-publisher-mcp/releases/latest)
-[![CI](https://github.com/BoraGkc/ghost-publisher-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/BoraGkc/ghost-publisher-mcp/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/BlogFactoryHQ/ghost-publisher-mcp.svg)](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/releases/latest)
+[![CI](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/actions/workflows/ci.yml)
 
 An unofficial, local-first MCP server for creating and managing Ghost posts and Pages, diagnosing publication readiness, scheduling posts, uploading images, publishing approved batches, triggering static-site rebuilds, and verifying rendered content.
 
@@ -13,9 +13,9 @@ Ghost Publisher exposes a bounded editorial surface instead of mirroring the ful
 
 > This project is not affiliated with or endorsed by the Ghost Foundation.
 
-> Current npm and official MCP Registry release: `0.10.0`, published on 2026-08-16.
+> Current npm and official MCP Registry release: `0.10.1`, published on 2026-08-25.
 
-On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for redacted reports and never include an Admin key.
+On 2026-08-16, setup discovery and a redacted dry run passed with ChatGPT desktop `26.810.41047` and its bundled Codex CLI `0.148.0-alpha.9`; a read-only connection check reached Ghost `6.42`. Cursor and Claude Desktop configuration generation is automated, but their current application runtimes were unavailable on the verification host. Please use the [client compatibility issue form](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for redacted reports and never include an Admin key.
 
 ## Proven in a daily publishing workflow
 
@@ -33,9 +33,9 @@ Create a custom integration in **Ghost Admin → Settings → Integrations**, th
 
 ## One-command setup
 
-[Watch the silent 60-second setup tour (4K, 60 fps)](https://github.com/BoraGkc/ghost-publisher-mcp/releases/download/v0.8.0/setup-demo-60s.mp4).
+[Watch the silent 60-second setup tour (4K, 60 fps)](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/releases/download/v0.8.0/setup-demo-60s.mp4).
 
-![Ghost Publisher one-command setup](https://raw.githubusercontent.com/BoraGkc/ghost-publisher-mcp/main/docs/assets/setup.png)
+![Ghost Publisher one-command setup](https://raw.githubusercontent.com/BlogFactoryHQ/ghost-publisher-mcp/main/docs/assets/setup.png)
 
 Run this in a private terminal:
 
@@ -48,7 +48,7 @@ The installer prompts once for the Ghost Admin API key without echoing it, detec
 For CI or automation, inject the key into an environment variable through the platform's secret manager rather than typing it into the command or passing it as an argument:
 
 ```bash
-npx -y ghost-publisher-mcp@0.10.0 setup \
+npx -y ghost-publisher-mcp@0.10.1 setup \
   --url https://your-ghost.example.com \
   --client codex \
   --key-env GHOST_SETUP_KEY \
@@ -71,7 +71,7 @@ Add this to your user-level Codex configuration:
 ```toml
 [mcp_servers.ghost-publisher]
 command = "npx"
-args = ["-y", "ghost-publisher-mcp@0.10.0"]
+args = ["-y", "ghost-publisher-mcp@0.10.1"]
 env = { GHOST_URL = "https://your-ghost.example.com", GHOST_ADMIN_API_KEY = "your_id:your_secret", GHOST_PERMISSION_PROFILE = "publisher", GHOST_UPLOAD_ROOTS = "/absolute/path/to/blog-assets", GHOST_DEPLOY_HOOK_URL = "https://your-host.example.com/deploy-hook", GHOST_PUBLIC_POST_URL_TEMPLATE = "https://your-site.example.com/posts/{slug}", GHOST_PUBLIC_PAGE_URL_TEMPLATE = "https://your-site.example.com/{slug}" }
 ```
 
@@ -86,7 +86,7 @@ Add this server entry to Claude Desktop's MCP JSON configuration:
   "mcpServers": {
     "ghost-publisher": {
       "command": "npx",
-      "args": ["-y", "ghost-publisher-mcp@0.10.0"],
+      "args": ["-y", "ghost-publisher-mcp@0.10.1"],
       "env": {
         "GHOST_URL": "https://your-ghost.example.com",
         "GHOST_ADMIN_API_KEY": "your_id:your_secret",
@@ -108,7 +108,7 @@ Add this server entry to Cursor's MCP JSON configuration:
   "mcpServers": {
     "ghost-publisher": {
       "command": "npx",
-      "args": ["-y", "ghost-publisher-mcp@0.10.0"],
+      "args": ["-y", "ghost-publisher-mcp@0.10.1"],
       "env": {
         "GHOST_URL": "https://your-ghost.example.com",
         "GHOST_ADMIN_API_KEY": "your_id:your_secret",
@@ -128,7 +128,7 @@ For a cautious first connection, use `GHOST_PERMISSION_PROFILE=read-only`; chang
 - Draft creation is always draft-only. Publishing, scheduling, applying a change set, unpublishing, and deployment require a separate explicit confirmation.
 - Start with the `read-only` permission profile and grant `draft-editor`, `scheduler`, or `publisher` only for the workflow you need.
 
-See the [client compatibility issue form](https://github.com/BoraGkc/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for a redacted report template.
+See the [client compatibility issue form](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/issues/new?template=client-compatibility.yml) for a redacted report template.
 
 ## Direct comparison
 
@@ -253,17 +253,17 @@ deployment to the configured host. Then check that their public URLs are live.
 
 The AI client researches and writes. Ghost Publisher performs the CMS actions and enforces draft-first, version-checked publishing.
 
-For a reproducible setup-to-live-check walkthrough, use the [safe publishing demo](https://github.com/BoraGkc/ghost-publisher-mcp/blob/main/docs/safe-publish-demo.md).
+For a reproducible setup-to-live-check walkthrough, use the [safe publishing demo](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/blob/main/docs/safe-publish-demo.md).
 
 For a 55-second product walkthrough—Markdown to SEO check, draft, and Ghost verification—use the [recording script](docs/publishing-demo-55s.md).
 
 ## Verified proof
 
-The [Ortak Alan case study](https://github.com/BoraGkc/ghost-publisher-mcp/blob/main/docs/case-study-ortakalan.md) records the maintainer-operated production setup, exact versions, read-only verification, and limitations. No production content was changed to create the proof.
+The [Ortak Alan case study](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/blob/main/docs/case-study-ortakalan.md) records the maintainer-operated production setup, exact versions, read-only verification, and limitations. No production content was changed to create the proof.
 
-![v0.8.0 marked as the latest GitHub Release](https://raw.githubusercontent.com/BoraGkc/ghost-publisher-mcp/main/docs/assets/release-v0.8.0.png)
+![v0.8.0 marked as the latest GitHub Release](https://raw.githubusercontent.com/BlogFactoryHQ/ghost-publisher-mcp/main/docs/assets/release-v0.8.0.png)
 
-![v0.8.0 Ghost 5 and Ghost 6 release workflow](https://raw.githubusercontent.com/BoraGkc/ghost-publisher-mcp/main/docs/assets/release-workflow.png)
+![v0.8.0 Ghost 5 and Ghost 6 release workflow](https://raw.githubusercontent.com/BlogFactoryHQ/ghost-publisher-mcp/main/docs/assets/release-workflow.png)
 
 ## Safety model
 

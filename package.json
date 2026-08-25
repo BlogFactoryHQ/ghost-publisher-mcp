@@ -1,7 +1,7 @@
 {
   "name": "ghost-publisher-mcp",
-  "version": "0.10.0",
-  "mcpName": "io.github.BoraGkc/ghost-publisher",
+  "version": "0.10.1",
+  "mcpName": "io.github.BlogFactoryHQ/ghost-publisher",
   "description": "Local-first MCP server for safe Ghost authoring, publication diagnostics, scheduling, images, and publishing.",
   "type": "module",
   "bin": {
@@ -41,12 +41,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BoraGkc/ghost-publisher-mcp.git"
+    "url": "git+https://github.com/BlogFactoryHQ/ghost-publisher-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/BoraGkc/ghost-publisher-mcp/issues"
+    "url": "https://github.com/BlogFactoryHQ/ghost-publisher-mcp/issues"
   },
-  "homepage": "https://github.com/BoraGkc/ghost-publisher-mcp#readme",
+  "homepage": "https://github.com/BlogFactoryHQ/ghost-publisher-mcp#readme",
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",
     "@modelcontextprotocol/sdk": "^1.29.0",

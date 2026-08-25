@@ -40,7 +40,7 @@ The useful case-study claim is therefore operational: the MCP made the complete 
 
 - At the 2026-08-16 verification, the operator configuration was pinned to `ghost-publisher-mcp@0.8.0`.
 - The installed application runtime discovered the MCP server and completed a real read-only request to the production Ghost instance.
-- The release is published on [npm](https://www.npmjs.com/package/ghost-publisher-mcp), the [official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.BoraGkc%2Fghost-publisher/versions/0.8.0), and [GitHub Releases](https://github.com/BoraGkc/ghost-publisher-mcp/releases/tag/v0.8.0).
+- The release is published on [npm](https://www.npmjs.com/package/ghost-publisher-mcp), the [official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.BoraGkc%2Fghost-publisher/versions/0.8.0), and [GitHub Releases](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/releases/tag/v0.8.0).
 - The package retains its permission profiles, revision checks, approval gates, and no-automatic-retry boundary.
 - The daily production flow covers draft creation, metadata updates, image upload, approved publishing, one deployment, and live verification.
 
@@ -50,7 +50,7 @@ The useful case-study claim is therefore operational: the MCP made the complete 
 
 ![Successful Ghost 5 and Ghost 6 release workflow](assets/release-workflow.png)
 
-The repository also includes a [60-second setup tour](https://github.com/BoraGkc/ghost-publisher-mcp/releases/download/v0.8.0/setup-demo-60s.mp4) and a reproducible [safe publishing demo](safe-publish-demo.md).
+The repository also includes a [60-second setup tour](https://github.com/BlogFactoryHQ/ghost-publisher-mcp/releases/download/v0.8.0/setup-demo-60s.mp4) and a reproducible [safe publishing demo](safe-publish-demo.md).
 
 The search-performance snapshots used above were captured from the operator's Google Search Console on 2026-08-20. They are retained outside this repository because they contain third-party product UI.
 
