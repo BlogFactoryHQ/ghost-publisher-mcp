@@ -8,6 +8,8 @@ Use this copy for a human-reviewed Ghost Forum post or MCP directory submission.
 
 **Repository:** https://github.com/BlogFactoryHQ/ghost-publisher-mcp
 
+**Official guide:** https://blogfactory.io/open-source-tools/ghost-publisher-mcp/
+
 **Package:** https://www.npmjs.com/package/ghost-publisher-mcp
 
 **Summary:** A local-first MCP server for approval-gated Ghost editorial workflows: create drafts, correct metadata, upload images, publish approved batches, trigger one deployment, and verify rendered posts and Pages. It is used in Ortak Alan's five-to-six-post daily workflow.

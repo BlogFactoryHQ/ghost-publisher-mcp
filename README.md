@@ -13,6 +13,8 @@ Ghost Publisher exposes a bounded editorial surface instead of mirroring the ful
 
 Ghost Publisher is maintained by [BlogFactoryHQ](https://github.com/BlogFactoryHQ) and works independently. [BlogFactory](https://github.com/BlogFactoryHQ/blogfactory) is the separate multi-site, draft-only control plane; Ghost Publisher is the local Ghost-specific server for separately approved scheduling and publishing. Installing one does not install or authorize the other.
 
+[Read the official overview and installation guide](https://blogfactory.io/open-source-tools/ghost-publisher-mcp/).
+
 > This project is not affiliated with or endorsed by the Ghost Foundation.
 
 > Current npm and official MCP Registry release: `0.10.1`, published on 2026-08-25.
