@@ -11,6 +11,8 @@ An unofficial, local-first MCP server for creating and managing Ghost posts and 
 
 Ghost Publisher exposes a bounded editorial surface instead of mirroring the full Ghost Admin API. It has no delete, member, newsletter-send, theme, arbitrary-query, remote HTTP, OAuth, or built-in AI billing surface.
 
+Ghost Publisher is maintained by [BlogFactoryHQ](https://github.com/BlogFactoryHQ) and works independently. [BlogFactory](https://github.com/BlogFactoryHQ/blogfactory) is the separate multi-site, draft-only control plane; Ghost Publisher is the local Ghost-specific server for separately approved scheduling and publishing. Installing one does not install or authorize the other.
+
 > This project is not affiliated with or endorsed by the Ghost Foundation.
 
 > Current npm and official MCP Registry release: `0.10.1`, published on 2026-08-25.
